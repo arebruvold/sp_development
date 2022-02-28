@@ -1,11 +1,13 @@
 
-library(zoo) #custom rolling windows
-library(tidyverse) #backbone
-library(RcppRoll)
-library(furrr) #parallel computing
-library(assertr)
-plan(multisession, workers = 14)
-library(tictoc)
+{
+  library(zoo) # custom rolling windows
+  library(tidyverse) # backbone
+  library(RcppRoll)
+  library(furrr) # parallel computing
+  library(assertr)
+  plan(multisession, workers = 14)
+  library(tictoc)
+}
 
 
 # supporting functions ####
@@ -36,7 +38,9 @@ PoiCI <- function (num, conf.level = 0.95) {
 
 ## sp calibration####
 
-# finds count files only
+# finds count files only, not recursive.
+# - in: folder
+# - out: n x 1 tibble with file paths.
 sp_rawfinder <- function(folder){
   tryCatch(
     expr = {
@@ -66,9 +70,39 @@ sp_rawfinder <- function(folder){
     })
 }
 
+# raw count file reader
+# - in: file path to .csv
+# - out: n x 1 tibble with count data.
+sp_reader <- function(CPS_csv) {
+  tryCatch(
+    expr = {
+      reshaped <- read_csv(
+        CPS_csv,
+        skip = 4,
+        col_select = 2,
+        col_types = "d"
+      ) %>% 
+        rename(counts = 1) %>% drop_na() %>% 
+        mutate(counts = round(counts, digits = 0))
+      
+      return(reshaped)
+    },
+    error = function(e) {
+      print(
+        sprintf(
+          "An error occurred in sp_reader at %s : %s",
+          Sys.time(),
+          e
+        )
+      )
+    }
+  )
+}
 
-# better implementation: list.files into vector pipe into a map with a function that read lines, pipe into new map make function to take each lines and get the info I want with regex mutate.
-# classifies all found cps count files into RM, STD or SAMPLE
+# classifies .csv files into SAMPLE, RM or STD, adds dataset, sample nae, datafile, isotope.
+# - in: n x 1 tibble with file paths
+# - out: tibble with metadata on the files.
+# - todo: faster implementation using list.files into vector pipe into a map with a function that read lines, pipe into new map make function to take each lines and extract info with regex mutate.
 sp_classifier <- function(folder, RM_string = "RM"){
   tryCatch(
     expr = {
@@ -116,6 +150,11 @@ sp_classifier <- function(folder, RM_string = "RM"){
 
 classified <- sp_classifier("~/sp-data/Fordefjorden/", RM_string = "AuRM500ng/LM")
 
+
+# calculates intercept, response from calibration curves. Used within sp_calibration.
+# - in: classified tibble
+# - out: tibble showing STDs used and response, intercept, r2.
+# - todo: error checking: minimum 2 points, non-negative values, all isotopes present.
 sp_response <- function(classified) {
   tryCatch(
     expr = {
@@ -167,11 +206,10 @@ sp_response <- function(classified) {
   )
 }
 
-
-
-sp_response(classified) %>% View()
-
-
+# calculates signal per mass for RM. Used in sp_calibration.
+# - in: classified tibble
+# - out: single value mass per count.
+# - todo: error checking: certain range.
 sp_mass_signal <- function(classified,
                            RM_dia = 60,
                            RM_density = 19.32,
@@ -218,7 +256,11 @@ sp_mass_signal <- function(classified,
 }
 
 
-sp_calib <- function(classified,
+
+# outputs calibration data: detector flow rate, mass per signal, response.
+# - in: classified
+# - out: tibble w detector flow rate, mass per signal, response for each isotope
+sp_calibration <- function(classified,
                      RM_dia = 60,
                      RM_density = 19.32,
                      RM_isotope = "Au",
@@ -232,7 +274,7 @@ sp_calib <- function(classified,
         element_fraction = 1
       ) # for RM
 
-      responses <- sp_response(classified) #
+      responses <- sp_response(classified)
 
       response_RM <- responses %>%
         filter(isotope == RM_isotope) %>%
@@ -260,44 +302,17 @@ sp_calib <- function(classified,
   )
 }
 
+tic("sp_calibration")
+calibrated <- sp_calibration(classified)
+toc("sp_calibration")
+
 ## sp peak discrimination ####
 
-hei <- sp_calib(classified) %>% View()
-
-CPS_csv <- "~/sp-data/dev-sp/008_RM-197-197_count_1.csv"
-
-# raw count file reader
-sp_reader <- function(CPS_csv) {
-  tryCatch(
-    expr = {
-      reshaped <- read_csv(
-        CPS_csv,
-        skip = 4,
-        col_select = 2,
-        col_types = "d"
-      ) %>% 
-        rename(counts = 1) %>% drop_na() %>% 
-        mutate(counts = round(counts, digits = 0))
-
-      return(reshaped)
-    },
-    error = function(e) {
-      print(
-        sprintf(
-          "An error occurred in sp_reader at %s : %s",
-          Sys.time(),
-          e
-        )
-      )
-    }
-  )
-}
 
 
-hoi <- sp_reader("~/sp-data/dev-sp/008_RM-197-197_count_1.csv")
-
-reshaped <- hoi
-
+# calculates baseline and poisson height threshold. Used within sp_peaks.
+# - in: n x 1 tibble with count data
+# - out: 3 x 1 tibble with count data, baseline and height threshold.
 baseline_thr_finder <- function(reshaped) {
   median_counts <- median(reshaped$counts, na.rm = TRUE)
 
@@ -325,8 +340,9 @@ baseline_thr_finder <- function(reshaped) {
 }
 
 
-# - peak location (time start or max peak time)
-
+# Discriminates and calculates peak parameters, numbers.
+# - in: n x 1 tibble with count data.
+# - out: m x 5 tibble with peak_n, peak_time, peak_max, peak_width and peak_area
 sp_peaks <- function(sp_read) {
   peaks <- baseline_thr_finder(sp_read) %>% 
     mutate(
@@ -348,15 +364,15 @@ sp_peaks <- function(sp_read) {
     ) %>%
     # labeling by n event, classify events whether max is above thr or not.
     mutate(
-      peak_n = cumsum(peak_n)
+      peak_n = cumsum(peak_n),
+      peak_time = row_number()
     ) %>%
     group_by(peak_n) %>%
     #Peak width error
     mutate(
       peak_max = max(counts),
-      #peak_width = n(), wrong, counts until next signal..
       peak_width = sum(c_above_baseline_thr > 0),
-      above_height_thr = peak_max > h_thr 
+      above_height_thr = peak_max > h_thr
     ) %>%
     # integration using group by.
     # interpolation when passing baseline could perhaps improve accuracy
@@ -373,20 +389,61 @@ sp_peaks <- function(sp_read) {
     select(!c_above_baseline_thr) %>% 
     distinct(peak_n, .keep_all = TRUE) %>% 
     filter(above_height_thr == TRUE) %>% 
-    select(peak_n, peak_max, peak_width, peak_area)
+    select(peak_n, peak_time, peak_max, peak_width, peak_area)
   
   peaks
 }
 
 
-# see: https://www.brodrigues.co/blog/2021-03-19-no_loops_tidyeval/ quo?
+# adds peak data to datafiles.
+# in: classified tibble
+# out: tibble with nested peak data (n x 6, nested: m x 5)
 sp_particles <- function(classified) {
+  # ideas for optimization(?): https://www.brodrigues.co/blog/2021-03-19-no_loops_tidyeval/
   classified %>%
     mutate(peaks = future_map(filepath, ~ sp_reader(.) %>% sp_peaks()))
 }
 
+particled <- sp_particles(head(classified, n = 100))
+
+sp_summary() <- function(){}
+
+
+# map over isotopes
+tic("over isotopes")
+hepp <- particled %>%
+  mutate(particles = future_map2(
+    peaks, isotope,
+    ~ .x %>% mutate(particle_mass = peak_area * calibrated %>%
+      filter(isotope == .y) %>%
+      pull(mass_signal) %>%
+      as.numeric())
+  ))
+toc("over isotopes")
+#bruke mutate = map(peaks) og en tibble av fns for å generere all output?
+  
+
+# Output fn ####
+# use sp_particles and sp_calibration output to get sizes. Output nParticle summariser type dataframe, with mass distributions.
+# also take in dens_comps type dataframe to get sizes.
+# keep also filepath for possibility of validating the spectrum.
+# Data:
+# - n particles
+# - particle number concentration
+# - particle mass concentration
+# - ionic concentration (sum counts - sum peak areas) / n_dwells
+# - Median mass, kde mass
+# - Median size, kde size
+# - TE
+# - Particle dataframe:
+#     - Masses, sizes, times, width, max, 
+
+
+
 # TODO ####
 # add calibrations to get mass and sizes
+# Option for concentration calibration.
+
 # rmd for browsing?
 
 
@@ -394,25 +451,4 @@ sp_particles <- function(classified) {
 # - ionic counts (sum counts - sum peak areas )/ n_dwells
 
 
-
-
-
-# using mass per count AND sp response
-  
-# keep for now, needed for sp_mass signal: ####
-  
-# nParticle_finder_blocks <- function(CPS_csv, prop = 1) {
-#   CPS_csv %>%
-#     folder_rawfinder() %>%
-#     future_map_dfr(
-#       ~ .x %>%
-#         # read in raw (cps) file
-#         raw_reshaper(prop = prop) %>%
-#         # calculate baseline
-#         baseline_thr_finder() %>%
-#         # integrate peaks
-#         peak_integration(),
-#       .options = furrr_options(seed = TRUE)
-#     )
-# }
   
