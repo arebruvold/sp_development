@@ -217,8 +217,7 @@ raw_reshaper_PE <- function(CPS_csv, prop = 1) {
 baseline_thr_finder <- function(reshaped) {
   bl_thr <- reshaped %>%
     # robust baseline with kde
-    mutate(#baseline = rollapply(counts, 301, dens_max, by = 50, fill = NA),
-           baseline = rollmedian(counts, 301, fill = NA)) %>%
+    mutate(baseline = rollapply(counts, 301, dens_max, by = 50, fill = NA)) %>%
     # end and and start fill inn due to windowed operation
     mutate(baseline = na.fill(baseline, "extend")) %>%
     # Zero inflation, problem of integers and bounded distribution
@@ -230,8 +229,10 @@ baseline_thr_finder <- function(reshaped) {
           baseline <= 3,
           rollapply(counts, 301, low_c_mean, fill = NA, by = 50),
           baseline
-        ),baseline = na.fill(baseline, "extend")
-      
+        )
+    ) %>%
+    mutate(
+      baseline = na.fill(baseline, "extend")
     ) %>%
     mutate(
       mean_baseline = mean(baseline, trim = 0.1),
