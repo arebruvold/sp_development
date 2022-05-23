@@ -1,0 +1,78 @@
+---
+title: "DTU_quantification_CRM"
+date: "5/20/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+data_folder <- "~/OneDrive - Havforskningsinstituttet/Are Marine Nanoparticles/Experimental results/SYNC_TEST/20190717_quantification_CRM-2.b/"
+source("r/sp_funs.R")
+```
+
+##
+
+
+```{r classification}
+
+cps_csvs <- sp_rawfinder(data_folder)
+
+tic("classifier")
+classified <- data_folder %>% sp_classifier(RM_string = "AuNPs")
+toc("classifier")
+```
+
+
+```{r particles}
+
+{tic("particles")
+particles <- sp_peaker(classified)
+toc("particles")}
+```
+
+
+```{r}
+# tic("response")
+# responses <- sp_response(classified)
+# toc("response")
+```
+
+
+```{r, warning=FALSE}
+{tic("cal")
+calibration_data <- sp_calibrator(classified, RM_dia = 27.6)
+toc("cal")}
+```
+
+```{r}
+# tic("pmasses")
+# particles_masses <- sp_masser(particles, calibration_data)
+# toc("pmasses")
+```
+
+```{r}
+tic("pout")
+particles_out <- sp_outputer(particles, calibration_data, dens_comps, RM_isotope = "Au", sample_intake_rate = 0.312)
+toc("pout")
+```
+
+
+```{r}
+# particles_masses[[8]][[7]] %>% 
+#   summarise(
+#       n_particles = n(),
+#       mass_conc = sum(particle_mass) * 10^12 /
+#         (mean(3.737022e-11
+# ) * 60 * 10000),
+#       particle_conc = n_particles * 10^0 /
+#         (mean(3.737022e-11
+# 
+# ) * 60 * 10000)
+#       )
+#   
+# 
+# 
+# particles_masses[[8]][[7]] %>% pull(particle_mass) %>% median()
+```
+

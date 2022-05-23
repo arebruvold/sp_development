@@ -12,6 +12,37 @@
 
 # supporting functions ####
 
+#used for size calculations, to be replaced/ combined with mass_fractioner.
+dens_comps <- tibble(
+  "isotope" = c("RM", "Au", "Al", "Mn", "Pb", "Fe", "Si", "Ti", "Cr", "Ce", "Zr", "Cu", "Cd", "Ba", "Co", "Ni", "Zn"),
+  "density" = c(19.32, 19.32, 2.56, 4.25, 6.29, 4.30, 2.65, 4.17, 5.22, 7.22, 5.68, 6.31, 2, 2, 2, 2, 2),
+  "element_fraction" = c(1, 1, 26.982/(39.098+26.982+3*28.085+8*15.999), 1 / 1.6, 1 / 1.465, 1 / 1.59, 1 / 2.139, 1/1.67, 1/1.462, 1/1.23, 91.22/(91.22+16.00*2), 63.55/(63.55+16), 1, 1, 1, 1, 1)
+)
+
+#not implemented yet.
+mass_fractioner <- function(chemformula, element) {
+  # Converts formula into mass fraction for given element.
+  # Number after element indicates number of times this element occurs.
+  # Case sensitive, number after element, e.g. TiO2, or C6H12O6.
+  # Credits to https://gist.github.com/GoodmanSciences/c2dd862cd38f21b0ad36b8f96b4bf1ee#file-periodic-table-of-elements-csv and
+  # https://gist.github.com/robertwb/22aa4dbfb6bcecd94f2176caa912b952 for the periodic table.
+  composition <- tibble(symbol = str_split(chemformula, "(?<=[A-Za-z\\d]{1,3})(?=[A-Z])") %>%
+                          as_vector()) %>%
+    mutate(
+      n = str_extract(symbol, "[\\d]{1,2}") %>% as.numeric(),
+      n = replace_na(n, 1),
+      symbol = str_replace_all(symbol, "\\d", "")
+    ) %>%
+    inner_join(read_csv("periodic_table.csv") %>% janitor::clean_names() %>%
+                 select(symbol, atomic_mass), by = "symbol") %>%
+    mutate(n_x_atomic_mass = atomic_mass * n)
+  
+  composition %>%
+    filter(symbol == element) %>%
+    pull(n_x_atomic_mass) / sum(composition %>% pull(n_x_atomic_mass))
+  
+}
+
 # Maximum of density fn estimator - to get the peak of non-parametric, multimodal distribution.
 # Could potentially be replaced with rccp equiv for performance gains.
 dens_max <- function(INDENS){
@@ -148,7 +179,7 @@ sp_classifier <- function(folder, RM_string = "RM"){
 
 
 
-classified <- sp_classifier("~/sp-data/Fordefjorden/", RM_string = "AuRM500ng/LM")
+# classified <- sp_classifier("~/sp-data/Fordefjorden/", RM_string = "AuRM500ng/LM")
 
 
 ## sp peak discrimination ####
@@ -219,9 +250,8 @@ sp_peak_discriminator <- function(sp_read) {
       # across size ranges at the expense of computation time.
       # This because the aspect ratio may increase w size.
       peak_area = sum(c_above_baseline_thr) %>% round(digits = 0)
-      )
-    %>%
-    # # for signal distribution:
+    ) %>%
+    # # for signal distribution (REMOVED):
     # group_by(peak_area, above_height_thr) %>%
     # mutate(
     #   peak_area_count = length(unique(peak_n))
@@ -238,20 +268,23 @@ sp_peak_discriminator <- function(sp_read) {
 
 # adds peak data to datafiles.
 # in: n x 5, sample_name, dataset, datafile, isotope, type
-# out: tibble with nested peak data (n x 7, nested: m x 5)
-sp_particles <- function(classified) {
+# out: n x 6, adds nested p x 5: peak_n, peak_time. peak_max, peak_width, peak_area  
+sp_peaker <- function(classified) {
   # ideas for optimization(?): https://www.brodrigues.co/blog/2021-03-19-no_loops_tidyeval/
   classified %>%
-    mutate(peaks = future_map(filepath, ~ sp_reader(.) %>% sp_peak_discriminator()))
+    mutate(
+      peaks = future_map(filepath, ~ sp_reader(.) %>% sp_peak_discriminator()),
+      mean_counts = future_map(filepath, ~ sp_reader(.) %>% pull(counts) %>% mean())
+    )
 }
 
 
-# calibration ####
+## calibration ####
 
 # calculates intercept, response from calibration curves. Used within sp_calibration.
-# - in: classified tibble
-# - out: tibble showing STDs used and response, intercept, r2.
-# - todo: error checking: minimum 2 points, non-negative values, all isotopes present.
+# - in: n x 6, filepath, sample_name, dataset, datafile, isotope, type
+# - out: s x 11, STDs used and conc_ppb, mean counts, response, intercept, r2.
+# - todo: error checking: minimum 2 points, non-negative values, all isotopes present, minimum R.
 sp_response <- function(classified) {
   tryCatch(
     expr = {
@@ -304,11 +337,10 @@ sp_response <- function(classified) {
 }
 
 # calculates signal per mass for RM. Used in sp_calibration, needs sp_peak_discriminator and sp_reader.
-# - in: classified tibble
+# - in: n x 6 ("classified"), filepath, sample_name, dataset, datafile, isotope, type
 # - out: single value mass per count.
-# - todo:
-#     - error checking: certain range.
-sp_mass_cal <- function(classified,
+# - todo: error checking, e.g. unique RM, NPs present in RM, certain range.
+sp_mass_signal_rmer <- function(classified,
                            RM_dia = 60,
                            RM_density = 19.32,
                            RM_isotope = "Au",
@@ -344,7 +376,7 @@ sp_mass_cal <- function(classified,
     error = function(e) {
       print(
         sprintf(
-          "An error occurred in sp_mass_cal at %s : %s",
+          "An error occurred in sp_mass_signal_rmer at %s : %s",
           Sys.time(),
           e
         )
@@ -352,65 +384,27 @@ sp_mass_cal <- function(classified,
     }
   )
 }
-
-sp_conc_cal <- function(classified,
-                        RM_dia = 60,
-                        RM_density = 19.32,
-                        RM_isotope = "Au",
-                        element_fraction = 1,
-                        RM_conc = 0) {
-  tryCatch(
-    expr = {
-      
-      RM_areas <- classified %>%
-        filter(
-          type == "RM",
-          str_detect(sample_name, isotope)
-        ) %>%
-        pull(filepath) %>% sp_reader() %>% 
-        sp_peak_discriminator()
-      
-      
-      # Get the mass per count by ... 
-      mass_count <- # counts per kg RM element
- 
-      
-      return(mass_count)
-    },
-    error = function(e) {
-      print(
-        sprintf(
-          "An error occurred in sp_mass_cal at %s : %s",
-          Sys.time(),
-          e
-        )
-      )
-    }
-  )
-}
-
-
 
 # outputs calibration data: detector flow rate, mass per signal, response.
-# - in: classified
+# - in: n x 6 ("classified"), filepath, sample_name, dataset, datafile, isotope, type
 # - out: tibble w detector flow rate, mass per signal, response for each isotope
-sp_calibration <- function(classified,
+sp_calibrator <- function(classified,
                      RM_dia = 60,
                      RM_density = 19.32,
                      RM_isotope = "Au",
                      element_fraction = 1) {
   tryCatch(
     expr = {
-      mass_signal_RM <- sp_mass_cal(classified,
-        RM_dia = 60,
-        RM_density = 19.32,
-        RM_isotope = "Au",
-        element_fraction = 1
+      mass_signal_RM <- sp_mass_signal_rmer(classified,
+        RM_dia = RM_dia,
+        RM_density = RM_density,
+        RM_isotope = RM_isotope,
+        element_fraction = element_fraction
       ) # for RM
 
       responses <- sp_response(classified)
 
-      response_RM <- responses %>%
+      response_RM <- responses %>% 
         filter(isotope == RM_isotope) %>%
         distinct(response) %>%
         as.numeric()
@@ -418,7 +412,7 @@ sp_calibration <- function(classified,
       calib <- responses %>%
         distinct(isotope, response, intercept, r2) %>%
         mutate(
-          mass_signal = mass_signal_RM * response_RM / response,
+          mass_signal = mass_signal_RM * response_RM / response, # counts per kg element
           detector_flow_rate = mass_signal_RM * response_RM * 10^9 # L per dwell
         )
 
@@ -436,60 +430,94 @@ sp_calibration <- function(classified,
   )
 }
 
-tic("sp_calibration")
-calibrated <- sp_calibration(classified)
-toc("sp_calibration")
+## Output fn ####
 
-
-
-
-# adds mass to peaks data
-# in: tibble w nested peak data (n x 7, nested: m x 5)
-# out: tibble w nested peak data (n x 6, new nested: m x 6)
-sp_particle_mass <- function(sp_particled, calibrated) {
-  mass <- sp_particled %>%
-    mutate(particles = future_map2(
-      peaks, isotope,
-      ~ .x %>% mutate(particle_mass = peak_area *
-        calibrated %>%
+sp_outputer <- function(peaked, calibration_data, dens_comps, RM_isotope = "Au", sample_intake_rate = 0.346, acq_time = 60) {
+  peaked %>%
+    ungroup() %>%
+    mutate(
+      peaks = future_map2(
+        peaks, isotope,
+        ~ .x %>% mutate(
+          particle_mass = peak_area *
+            calibration_data %>%
+              filter(isotope == .y) %>%
+              pull(mass_signal) %>%
+              as.numeric(),
+          particle_size = (6 * particle_mass /
+            (pi * dens_comps %>%
+              filter(isotope == .y) %>%
+              pull(density, element_fraction) %>%
+              Reduce(`*`, .) %>%
+              as.numeric() * 1000))^(1 / 3) * 10^9
+        )
+      ),
+      summary_data = future_map2(
+        peaks, isotope,
+        ~ .x %>%
+          summarise(
+            n_particles = n(),
+            mean_size = mean(particle_size),
+            median_size = median(particle_size),
+            mass_conc = sum(particle_mass) * 10^12 / (calibration_data %>%
+              filter(isotope == RM_isotope) %>%
+              pull(detector_flow_rate) %>%
+              as.numeric() * acq_time * 10000), # ng/L
+            particle_conc = n_particles / (calibration_data %>%
+              filter(isotope == RM_isotope) %>%
+              pull(detector_flow_rate) %>%
+              as.numeric() * acq_time * 10000), # #/L
+            detector_flow_rate = calibration_data %>%
+              filter(isotope == RM_isotope) %>%
+              pull(detector_flow_rate) %>%
+              as.numeric(),
+            transport_efficiency = detector_flow_rate * 1000 * 60 * 10000 / sample_intake_rate # L/dwell to ml/min conversion
+          )
+      ), # why does this not work?
+      # total_conc = calibration_data %>%
+      #   filter(isotope == isotope) %>%
+      #   pull(mass_signal, detector_flow_rate) %>%
+      #   Reduce(`*`, .) %>%
+      #   as.numeric() * mean_counts %>% as.numeric()
+      total_conc = future_map2(
+        mean_counts, isotope,
+        ~ .x / (calibration_data %>%
           filter(isotope == .y) %>%
-          pull(mass_signal) %>%
-          as.numeric())
-    ))
+          pull(response) %>%
+          Reduce(`*`, .))
+      )
+    ) %>% unnest(summary_data)
 }
-
-
-#bruke mutate = map(peaks) og en tibble av fns for å generere all output?
-  
-sp_summary() <- function(sp_particle_massed, ){}
-
-# Output fn ####
-# use sp_particles and sp_calibration output to get sizes. Output nParticle summariser type dataframe, with mass distributions.
-# also take in dens_comps type dataframe to get sizes.
-# keep also filepath for possibility of validating the spectrum.
-
-# Data:
-# - n particles
-# - particle number concentration
-# - particle mass concentration
-# - ionic concentration (sum counts - sum peak areas) / n_dwells
-# - Median mass, kde mass
-# - Median size, kde size
-# - TE
-# - Particle dataframe:
-#     - Masses, sizes, times, width, max, 
-
+# 
+# TE = detector_flow_rate*60/(100*0.346*10^(-9))
+# mass_conc = sum(peak_mass) * 10^12 /
+#   (mean(detector_flow_rate) * acq_time * 10000)
+# 
+# sp_sumfuns <- function() {
+#   
+# }
+# particles %>%
+#   mutate(model = map(peaks, ~ .x %>% sp_outfuns(5))) %>% unnest(model) %>% View()
+# 
+# 
+# particles %>%
+#   mutate(model = map2(peaks, calibration_data, ~ .x %>% sp_outfuns(5))) %>% unnest(model) %>% View()
+# 
+# particles %>% 
+#   mutate(
+#     mass_conc = map(peaks, ~ .x %>% pull(peak_area) %>%  sum()*10^12 /
+#                       (4.799126e-11 * 60 * 10000))
+#   ) %>% View()
+# 
 
 
 # TODO ####
-# add calibrations to get mass and sizes
+# ionic conc?!
+# make output function work yet produce NAs if calibration and/or dens_comps are empty.
+# increase speed of classifier.
 # Option for concentration calibration.
+# ionic concentration (sum counts - sum peak areas) / n_dwells
 
-# rmd for browsing?
-
-
-# - sum counts
-# - ionic counts (sum counts - sum peak areas )/ n_dwells
 
 
   
