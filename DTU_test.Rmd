@@ -65,5 +65,9 @@ toc("Au")
 
 au_alldays <- rbind(au_d1 %>% mutate(dataset = 1), au_d2 %>% mutate(dataset = 2), au_d3 %>% mutate(dataset = 3), au_d4 %>% mutate(dataset = 4), au_d5 %>% mutate(dataset = 5))
 
-
 ```
+
+```{r}
+mathias_torsk_210917 <- sp_wrapper("~/sp-data/17.09.21 Au Ce Ti torsk.b/", acq_time = 120, sample_intake_rate = 0.346, RM_string = "RM", dens_comps = dens_comps, RM_isotope = "Au")
+```
+
