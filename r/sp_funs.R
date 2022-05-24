@@ -473,7 +473,7 @@ sp_outputer <- function(peaked, calibration_data, dens_comps, RM_isotope = "Au",
               as.numeric(),
             transport_efficiency = detector_flow_rate * 1000 * 60 * 10000 / sample_intake_rate # L/dwell to ml/min conversion
           )
-      ), # why does this not work?
+      ), # Richard: why does this not work?
       # total_conc = calibration_data %>%
       #   filter(isotope == isotope) %>%
       #   pull(mass_signal, detector_flow_rate) %>%
@@ -488,35 +488,49 @@ sp_outputer <- function(peaked, calibration_data, dens_comps, RM_isotope = "Au",
       )
     ) %>% unnest(summary_data)
 }
-# 
-# TE = detector_flow_rate*60/(100*0.346*10^(-9))
-# mass_conc = sum(peak_mass) * 10^12 /
-#   (mean(detector_flow_rate) * acq_time * 10000)
-# 
-# sp_sumfuns <- function() {
-#   
-# }
-# particles %>%
-#   mutate(model = map(peaks, ~ .x %>% sp_outfuns(5))) %>% unnest(model) %>% View()
-# 
-# 
-# particles %>%
-#   mutate(model = map2(peaks, calibration_data, ~ .x %>% sp_outfuns(5))) %>% unnest(model) %>% View()
-# 
-# particles %>% 
-#   mutate(
-#     mass_conc = map(peaks, ~ .x %>% pull(peak_area) %>%  sum()*10^12 /
-#                       (4.799126e-11 * 60 * 10000))
-#   ) %>% View()
-# 
 
+sp_wrapper <- function(csv_folder,
+                       acq_time,
+                       sample_intake_rate = 0.346,
+                       RM_string = "RM",
+                       RM_dia = 60,
+                       RM_isotope = "Au",
+                       RM_density = 19.32,
+                       dens_comps = dens_comps) {
+  
+  classified <- csv_folder %>%
+    sp_classifier(RM_string = RM_string)
+  
+  peaked <- sp_peaker(classified)
+  
+  calibrated <- sp_calibrator(
+    classified,
+    RM_dia = RM_dia,
+    RM_isotope = RM_isotope,
+    RM_density = RM_density
+  )
+  
+  sp_output <- sp_outputer(peaked,
+                            calibrated,
+                            dens_comps,
+                            RM_isotope,
+                            sample_intake_rate,
+                            acq_time
+  )
+  
+  return(sp_output)
+}
 
 # TODO ####
-# ionic conc?!
-# make output function work yet produce NAs if calibration and/or dens_comps are empty.
-# increase speed of classifier.
-# Option for concentration calibration.
-# ionic concentration (sum counts - sum peak areas) / n_dwells
+# - add comments
+# - make output function work yet produce NAs if calibration and/or dens_comps are empty.
+# - validate
+# - increase speed, classifier especially.
+# - error testing using assertr package.
+# - add diagnostic spectrum plotter, combine with identifying particles by time signature.
+#     - extract vector from peaks data and feed to tis function, selectively plotting only the ones chosen.
+# - Make convenient rmd or shiny app/ setup server for automated data processing.
+
 
 
 

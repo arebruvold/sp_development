@@ -15,9 +15,6 @@ source("r/sp_funs.R")
 
 
 ```{r classification}
-
-cps_csvs <- sp_rawfinder(data_folder)
-
 tic("classifier")
 classified <- data_folder %>% sp_classifier(RM_string = "AuNPs")
 toc("classifier")
@@ -27,15 +24,8 @@ toc("classifier")
 ```{r particles}
 
 {tic("particles")
-particles <- sp_peaker(classified)
+peaked <- sp_peaker(classified)
 toc("particles")}
-```
-
-
-```{r}
-# tic("response")
-# responses <- sp_response(classified)
-# toc("response")
 ```
 
 
@@ -46,33 +36,15 @@ toc("cal")}
 ```
 
 ```{r}
-# tic("pmasses")
-# particles_masses <- sp_masser(particles, calibration_data)
-# toc("pmasses")
-```
-
-```{r}
 tic("pout")
-particles_out <- sp_outputer(particles, calibration_data, dens_comps, RM_isotope = "Au", sample_intake_rate = 0.312)
+particles_out <- sp_outputer(peaked, calibration_data, dens_comps, RM_isotope = "Au", sample_intake_rate = 0.312)
 toc("pout")
 ```
 
 
 ```{r}
-# particles_masses[[8]][[7]] %>% 
-#   summarise(
-#       n_particles = n(),
-#       mass_conc = sum(particle_mass) * 10^12 /
-#         (mean(3.737022e-11
-# ) * 60 * 10000),
-#       particle_conc = n_particles * 10^0 /
-#         (mean(3.737022e-11
-# 
-# ) * 60 * 10000)
-#       )
-#   
-# 
-# 
-# particles_masses[[8]][[7]] %>% pull(particle_mass) %>% median()
+tic("wraptesting")
+wraptest2 <- sp_wrapper(data_folder, acq_time = 60, sample_intake_rate = 0.312, RM_string = "AuNPs", dens_comps = dens_comps, RM_isotope = "Au")
+toc("wraptesting")
 ```
 
