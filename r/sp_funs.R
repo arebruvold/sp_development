@@ -530,6 +530,8 @@ sp_wrapper <- function(csv_folder,
 # - add diagnostic spectrum plotter, combine with identifying particles by time signature.
 #     - extract vector from peaks data and feed to tis function, selectively plotting only the ones chosen.
 # - Make convenient rmd or shiny app/ setup server for automated data processing.
+# - Readme, note only same acq time per isotope.
+# error if multiple RMs.
 
 
 
