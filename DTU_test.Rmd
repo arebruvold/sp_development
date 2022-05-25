@@ -71,3 +71,21 @@ au_alldays <- rbind(au_d1 %>% mutate(dataset = 1), au_d2 %>% mutate(dataset = 2)
 mathias_torsk_210917 <- sp_wrapper("~/sp-data/17.09.21 Au Ce Ti torsk.b/", acq_time = 120, sample_intake_rate = 0.346, RM_string = "RM", dens_comps = dens_comps, RM_isotope = "Au")
 ```
 
+```{r poster1-tests}
+
+poster1 <- sp_wrapper("~/OneDrive - Havforskningsinstituttet/Are Marine Nanoparticles/Paper_2_Au_val/poster_data/200814_BM_TiCuCr_x6000_poster_1.b/", acq_time = 180, sample_intake_rate = 0.346, RM_string = "RM", dens_comps = dens_comps, RM_isotope = "Au", RM_density = 19.32)
+
+poster1_class <- sp_classifier("~/OneDrive - Havforskningsinstituttet/Are Marine Nanoparticles/Paper_2_Au_val/poster_data/200814_BM_TiCuCr_x6000_poster_1.b/", RM_string = "RM")
+
+poster1_class %>% View()
+
+poster1_responses <- sp_response(poster1_class)
+
+poster1_calibration_data <- sp_calibrator(poster1_class, RM_dia = 60, RM_density = 19.32, RM_isotope = "Au", element_fraction = 1)
+
+poster1_peaks <- sp_peaker(poster1_class)
+
+poster1_output <- sp_outputer(poster1_peaks,poster1_calibration_data, acq_time = 120,dens_comps = dens_comps, RM_isotope = "Au", sample_intake_rate = 0.346)
+
+```
+

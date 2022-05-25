@@ -327,7 +327,7 @@ sp_response <- function(classified) {
     error = function(e) {
       print(
         sprintf(
-          "An error occurred in foo at %s : %s",
+          "An error occurred in sp_response at %s : %s",
           Sys.time(),
           e
         )
@@ -341,10 +341,10 @@ sp_response <- function(classified) {
 # - out: single value mass per count.
 # - todo: error checking, e.g. unique RM, NPs present in RM, certain range.
 sp_mass_signal_rmer <- function(classified,
-                           RM_dia = 60,
-                           RM_density = 19.32,
-                           RM_isotope = "Au",
-                           element_fraction = 1) {
+                           RM_dia,
+                           RM_density,
+                           RM_isotope,
+                           element_fraction) {
   tryCatch(
     expr = {
       
@@ -389,17 +389,18 @@ sp_mass_signal_rmer <- function(classified,
 # - in: n x 6 ("classified"), filepath, sample_name, dataset, datafile, isotope, type
 # - out: tibble w detector flow rate, mass per signal, response for each isotope
 sp_calibrator <- function(classified,
-                     RM_dia = 60,
-                     RM_density = 19.32,
-                     RM_isotope = "Au",
-                     element_fraction = 1) {
+                     RM_dia,
+                     RM_density,
+                     RM_isotope,
+                     element_fraction) {
   tryCatch(
     expr = {
-      mass_signal_RM <- sp_mass_signal_rmer(classified,
-        RM_dia = RM_dia,
-        RM_density = RM_density,
-        RM_isotope = RM_isotope,
-        element_fraction = element_fraction
+      mass_signal_RM <- sp_mass_signal_rmer(
+        classified,
+        RM_dia,
+        RM_density,
+        RM_isotope,
+        element_fraction
       ) # for RM
 
       responses <- sp_response(classified)
@@ -432,7 +433,12 @@ sp_calibrator <- function(classified,
 
 ## Output fn ####
 
-sp_outputer <- function(peaked, calibration_data, dens_comps, RM_isotope = "Au", sample_intake_rate = 0.346, acq_time = 60) {
+sp_outputer <- function(peaked, 
+                        calibration_data,
+                        acq_time,
+                        dens_comps,
+                        RM_isotope,
+                        sample_intake_rate) {
   peaked %>%
     ungroup() %>%
     mutate(
@@ -440,16 +446,15 @@ sp_outputer <- function(peaked, calibration_data, dens_comps, RM_isotope = "Au",
         peaks, isotope,
         ~ .x %>% mutate(
           particle_mass = peak_area *
-            calibration_data %>%
-              filter(isotope == .y) %>%
+              (filter(calibration_data, isotope == .y) %>%
               pull(mass_signal) %>%
-              as.numeric(),
+              as.numeric()),
           particle_size = (6 * particle_mass /
-            (pi * dens_comps %>%
-              filter(isotope == .y) %>%
+            (pi * 
+              (filter(dens_comps, isotope == .y) %>%
               pull(density, element_fraction) %>%
               Reduce(`*`, .) %>%
-              as.numeric() * 1000))^(1 / 3) * 10^9
+              as.numeric()) * 1000))^(1 / 3) * 10^9
         )
       ),
       summary_data = future_map2(
@@ -490,24 +495,26 @@ sp_outputer <- function(peaked, calibration_data, dens_comps, RM_isotope = "Au",
 }
 
 sp_wrapper <- function(csv_folder,
-                       acq_time,
+                       acq_time = 60,
                        sample_intake_rate = 0.346,
                        RM_string = "RM",
                        RM_dia = 60,
                        RM_isotope = "Au",
                        RM_density = 19.32,
+                       element_fraction = 1,
                        dens_comps = dens_comps) {
   
   classified <- csv_folder %>%
-    sp_classifier(RM_string = RM_string)
+    sp_classifier(RM_string)
   
   peaked <- sp_peaker(classified)
   
   calibrated <- sp_calibrator(
     classified,
-    RM_dia = RM_dia,
-    RM_isotope = RM_isotope,
-    RM_density = RM_density
+    RM_dia,
+    RM_isotope,
+    RM_density,
+    element_fraction
   )
   
   sp_output <- sp_outputer(peaked,
