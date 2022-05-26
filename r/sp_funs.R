@@ -336,54 +336,54 @@ sp_response <- function(classified) {
   )
 }
 
-# calculates signal per mass for RM. Used in sp_calibration, needs sp_peak_discriminator and sp_reader.
-# - in: n x 6 ("classified"), filepath, sample_name, dataset, datafile, isotope, type
-# - out: single value mass per count.
-# - todo: error checking, e.g. unique RM, NPs present in RM, certain range.
-sp_mass_signal_rmer <- function(classified,
-                           RM_dia,
-                           RM_density,
-                           RM_isotope,
-                           element_fraction) {
-  tryCatch(
-    expr = {
-      
-        RM_areas <- classified %>%
-          filter(
-            type == "RM",
-            str_detect(sample_name, isotope)
-          ) %>%
-          pull(filepath) %>% sp_reader() %>% 
-          sp_peak_discriminator()
-        
-        RM_area_mode <- density(
-          RM_areas$peak_area
-        )$x[which.max(density(RM_areas$peak_area)$y)]
-        
-        # Get the mass per count by relating the "known" RM mass to counts_RM
-        mass_count <- # counts per kg RM element
-          (
-            RM_density * # density RM [g/cm3]
-              1000 * (4 / 3) * pi * (RM_dia * 10^(-9) / 2)^3 * # RM volume
-              (
-                element_fraction
-              )
-          ) /
-          RM_area_mode # element fraction divided by RM peak area "mode"
-        
-      return(mass_count)
-    },
-    error = function(e) {
-      print(
-        sprintf(
-          "An error occurred in sp_mass_signal_rmer at %s : %s",
-          Sys.time(),
-          e
-        )
-      )
-    }
-  )
-}
+# # calculates signal per mass for RM. Used in sp_calibration, needs sp_peak_discriminator and sp_reader.
+# # - in: n x 6 ("classified"), filepath, sample_name, dataset, datafile, isotope, type
+# # - out: single value mass per count.
+# # - todo: error checking, e.g. unique RM, NPs present in RM, certain range.
+# sp_mass_signal_rmer <- function(classified,
+#                            RM_dia,
+#                            RM_density,
+#                            RM_isotope,
+#                            element_fraction) {
+#   tryCatch(
+#     expr = {
+#       
+#         RM_areas <- classified %>%
+#           filter(
+#             type == "RM",
+#             str_detect(sample_name, isotope)
+#           ) %>%
+#           pull(filepath) %>% sp_reader() %>% 
+#           sp_peak_discriminator()
+#         
+#         RM_area_mode <- density(
+#           RM_areas$peak_area
+#         )$x[which.max(density(RM_areas$peak_area)$y)]
+#         
+#         # Get the mass per count by relating the "known" RM mass to counts_RM
+#         mass_count <- # counts per kg RM element
+#           (
+#             RM_density * # density RM [g/cm3]
+#               1000 * (4 / 3) * pi * (RM_dia * 10^(-9) / 2)^3 * # RM volume
+#               (
+#                 element_fraction
+#               )
+#           ) /
+#           RM_area_mode # element fraction divided by RM peak area "mode"
+#         
+#       return(mass_count)
+#     },
+#     error = function(e) {
+#       print(
+#         sprintf(
+#           "An error occurred in sp_mass_signal_rmer at %s : %s",
+#           Sys.time(),
+#           e
+#         )
+#       )
+#     }
+#   )
+# }
 
 # outputs calibration data: detector flow rate, mass per signal, response.
 # - in: n x 6 ("classified"), filepath, sample_name, dataset, datafile, isotope, type
@@ -395,13 +395,28 @@ sp_calibrator <- function(classified,
                      element_fraction) {
   tryCatch(
     expr = {
-      mass_signal_RM <- sp_mass_signal_rmer(
-        classified,
-        RM_dia,
-        RM_density,
-        RM_isotope,
-        element_fraction
-      ) # for RM
+      #calculates mass per count using known RM mass and relating to KDE max peak area.
+      RM_areas <- classified %>%
+        filter(
+          type == "RM",
+          str_detect(sample_name, isotope)
+        ) %>%
+        pull(filepath) %>% sp_reader() %>% 
+        sp_peak_discriminator()
+      
+      RM_area_mode <- density(
+        RM_areas$peak_area
+      )$x[which.max(density(RM_areas$peak_area)$y)]
+      
+      mass_signal_RM <- # counts per kg RM element
+        (
+          RM_density * # density RM [g/cm3]
+            1000 * (4 / 3) * pi * (RM_dia * 10^(-9) / 2)^3 * # RM volume
+            (
+              element_fraction
+            )
+        ) /
+        RM_area_mode
 
       responses <- sp_response(classified)
 
@@ -431,7 +446,7 @@ sp_calibrator <- function(classified,
   )
 }
 
-## Output fn ####
+## output ####
 
 sp_outputer <- function(peaked, 
                         calibration_data,
@@ -509,24 +524,186 @@ sp_wrapper <- function(csv_folder,
   
   peaked <- sp_peaker(classified)
   
-  calibrated <- sp_calibrator(
-    classified,
-    RM_dia,
-    RM_isotope,
-    RM_density,
-    element_fraction
+  calibrated <- sp_calibrator(classified,
+                              RM_dia,
+                              RM_density,
+                              RM_isotope,
+                              element_fraction
   )
   
-  sp_output <- sp_outputer(peaked,
-                            calibrated,
-                            dens_comps,
-                            RM_isotope,
-                            sample_intake_rate,
-                            acq_time
+  sp_output <- sp_outputer(peaked, 
+                           calibrated,
+                           acq_time,
+                           dens_comps,
+                           RM_isotope,
+                           sample_intake_rate
   )
   
   return(sp_output)
 }
+
+## validation ####
+test %>%
+  filter(reduce(map(time_intervals, near, x= row_number(), tol = 2),`|`))
+
+# Takes in sample file and the particle output, selects the smallest particles in terms of area and max intensity and reveals them in the spectrum with context.
+# Todo:
+#   - change to smallest 10 particles
+#   - show context of particles, 
+sp_spectrum_validation <- function(filepath, sp_output) {
+  peaks_data <- sp_output %>%
+    filter(filepath == filepath) %>%
+    pluck("peaks") %>% map_df(.f = as_tibble) 
+  # %>% 
+  #   filter(quantile(peak_area, n_prop) > peak_area)
+  
+  time_intervals <- peaks_data %>% pull(peak_time)
+  
+raw_data <- sp_reader(filepath) %>%
+  filter(reduce(map(time_intervals, near, x = row_number(), tol = 50), `|`))
+
+
+  ggplot(data = raw_data, aes(as.factor(row.names(raw_data)), counts)) +
+    geom_line()
+  
+  
+  # +
+  #   geom_point(data = sp_output %>%
+  #     filter(filepath == filepath) %>% pluck("peaks"), aes(x = peak_time, y = 0), size = 4, color = "green")
+}
+  
+
+
+# signal_found_plotter <- function(foundParticles,
+#                                  prop = 1,
+#                                  t_0 = 0, t_e = 600,
+#                                  i_min = 0,
+#                                  i_max = Inf,
+#                                  area_below = Inf) {
+#   if (ncol(foundParticles) <= 16) {
+#     plot_Found <- foundParticles %>%
+#       group_by(isotope, datafile) %>%
+#       slice_head(prop = prop) %>%
+#       ungroup() %>%
+#       filter(
+#         Time > t_0,
+#         Time < t_e,
+#         peak_max_I >= i_min,
+#         peak_max_I <= i_max
+#       ) %>%
+#       ggplot(aes(x = Time, y = counts)) +
+#       # geom_line(size = 0.2) +
+#       theme_minimal() +
+#       geom_line() +
+#       geom_line(aes(x = Time, y = baseline), color = "blue", size = 2) +
+#       geom_line(aes(x = Time, y = h_thr), color = "red") +
+#       geom_point(
+#         data = foundParticles %>% group_by(isotope, datafile) %>%
+#           slice_head(prop = prop) %>% distinct(peak_n, .keep_all = TRUE) %>%
+#           mutate(Time_event = if_else(above_height_thr == TRUE &
+#                                         peak_area < area_below, Time, NA_real_)),
+#         aes(
+#           x = Time_event,
+#           y = 0
+#         ),
+#         #   label = round(Time_event, digits = 2),
+#         #   angle = 90,
+#         #   hjust = 1
+#         # ),
+#         size = 3,
+#         color = "green"
+#       ) +
+#       # geom_text(
+#       #   data = foundParticles %>% group_by(isotope, datafile) %>%
+#       #     # Use FILTER instead of the mutate
+#       #     slice_head(prop = prop) %>% distinct(peak_n, .keep_all = TRUE) %>%
+#       #     filter(above_height_thr == TRUE,
+#       #            peak_area < area_below),
+#       #   aes(
+#       #     x = Time,
+#       #     y = 0,
+#       #     label = round(peak_area, digits = 0),
+#       #     angle = 90
+#     #   ),
+#     #   size = 3,
+#     #   color = "green"
+#     # ) +
+#     labs(title = "Signal processing") +
+#       # # labels/text, OLD, NEED HELP WITH THIS:
+#       # labs(subtitle = paste(
+#       #   foundParticles %>% filter(above_height_thr == "Yes") %>%
+#       #     distinct(peak_n) %>% nrow(),
+#       #   " particle events",
+#       #   ", min intensity threshold: ", min(foundParticles$h_thr),
+#       #   "\n", foundParticles$isotope[1], ":  ",
+#       #   foundParticles$datafile, ":  ",
+#       #   foundParticles$dataset,
+#       #   sep = ""
+#       # )) +
+#     facet_wrap(isotope ~ sample_name, scales = "free")
+#   }
+#   
+#   if (ncol(foundParticles) > 16) {
+#     plot_Found <- foundParticles %>%
+#       group_by(isotope, datafile) %>%
+#       slice_head(prop = prop) %>%
+#       ungroup() %>%
+#       filter(
+#         Time > t_0,
+#         Time < t_e,
+#         peak_max_I >= i_min,
+#         peak_max_I <= i_max
+#       ) %>%
+#       ggplot(aes(x = Time, y = counts)) +
+#       # geom_line(size = 0.2) +
+#       theme_minimal() +
+#       geom_line() +
+#       geom_line(aes(x = Time, y = baseline), color = "blue", size = 2) +
+#       geom_line(aes(x = Time, y = h_thr), color = "red") +
+#       # geom_point(
+#       #   data = foundParticles %>% group_by(isotope, datafile) %>%
+#       #     slice_head(prop = prop) %>%  distinct(peak_n, .keep_all = TRUE) %>%
+#       #     mutate(Time_event = if_else(above_height_thr == "Yes", Time, NA_real_)),
+#       #   aes(
+#       #     x = Time_event,
+#       #     y = 2)
+#       #   ,
+#       #   #   label = round(Time_event, digits = 2),
+#       #   #   angle = 90,
+#       #   #   hjust = 1
+#     #   # ),
+#     #   size = 2,
+#     #   color = "green") +
+#     geom_text(
+#       data = foundParticles %>% group_by(isotope, datafile) %>%
+#         # Use FILTER instead of the mutate
+#         slice_head(prop = prop) %>% distinct(peak_n, .keep_all = TRUE) %>%
+#         filter(above_height_thr == TRUE),
+#       aes(
+#         x = Time,
+#         y = -5,
+#         label = round(size_nm, digits = 0),
+#         angle = 90
+#       ),
+#       size = 3,
+#       color = "green"
+#     ) +
+#       labs(title = "Signal processing") +
+#       # # labels/text, OLD, NEED HELP WITH THIS:
+#       # labs(subtitle = paste(
+#       #   foundParticles %>% filter(above_height_thr == "Yes") %>%
+#       #     distinct(peak_n) %>% nrow(),
+#       #   " particle events",
+#       #   ", min intensity threshold: ", min(foundParticles$h_thr),
+#       #   "\n", foundParticles$isotope[1], ":  ",
+#       #   foundParticles$datafile, ":  ",
+#       #   foundParticles$dataset,
+#       #   sep = ""
+#       # )) +
+#     facet_wrap(isotope ~ sample_name, scales = "free")
+#   }
+#   plot_Found
+# }
 
 # TODO ####
 # - add comments
