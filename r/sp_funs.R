@@ -26,43 +26,46 @@ mass_fractioner <- function(chemformula, element) {
   # Case sensitive, number after element, e.g. TiO2, or C6H12O6.
   # Credits to https://gist.github.com/GoodmanSciences/c2dd862cd38f21b0ad36b8f96b4bf1ee#file-periodic-table-of-elements-csv and
   # https://gist.github.com/robertwb/22aa4dbfb6bcecd94f2176caa912b952 for the periodic table.
-  composition <- tibble(symbol = str_split(chemformula, "(?<=[A-Za-z\\d]{1,3})(?=[A-Z])") %>%
-                          as_vector()) %>%
+  composition <-
+    tibble(symbol = str_split(chemformula, "(?<=[A-Za-z\\d]{1,3})(?=[A-Z])") %>%
+      as_vector()) %>%
     mutate(
-      n = str_extract(symbol, "[\\d]{1,2}") %>% as.numeric(),
+      n = str_extract(symbol, "[\\d]{1,2}") %>%
+        as.numeric(),
       n = replace_na(n, 1),
       symbol = str_replace_all(symbol, "\\d", "")
     ) %>%
-    inner_join(read_csv("periodic_table.csv") %>% janitor::clean_names() %>%
-                 select(symbol, atomic_mass), by = "symbol") %>%
+    inner_join(read_csv("periodic_table.csv") %>%
+      janitor::clean_names() %>%
+      select(symbol, atomic_mass), by = "symbol") %>%
     mutate(n_x_atomic_mass = atomic_mass * n)
-  
+
   composition %>%
     filter(symbol == element) %>%
-    pull(n_x_atomic_mass) / sum(composition %>% pull(n_x_atomic_mass))
-  
+    pull(n_x_atomic_mass) / sum(composition %>%
+      pull(n_x_atomic_mass))
 }
 
 # Maximum of density fn estimator - to get the peak of non-parametric, multimodal distribution.
 # Could potentially be replaced with rccp equiv for performance gains.
-dens_max <- function(INDENS){
+dens_max <- function(INDENS) {
   dens_test <- density(INDENS, from = 0, width = 2.5)
   dens_test$x[which.max(dens_test$y)]
 }
 
 # Filter for low baselines, in which case density estimates can be imprecise for integer count data.
 # Could be improved on, e.g. by use of asymmetric kernel, or by defining the kernel.
-low_c_mean <- function(INCOUNT){
-  INCOUNT[INCOUNT>5] <- 5
+low_c_mean <- function(INCOUNT) {
+  INCOUNT[INCOUNT > 5] <- 5
   INCOUNT %>% mean(trim = 0.05)
 }
 
 # required to calculate threshold from non-integer values
 # Credits to stats.stackexchange.com/questions/10926/how-to-calculate-confidence-interval-for-count-data-in-r
-PoiCI <- function (num, conf.level = 0.95) {
-  a = 1 - conf.level
-# lower <- 0.5 * qchisq(a/2, 2*num)
-  0.5 * qchisq(1-a/2, 2*num+2)
+PoiCI <- function(num, conf.level = 0.95) {
+  a <- 1 - conf.level
+  # lower <- 0.5 * qchisq(a/2, 2*num)
+  0.5 * qchisq(1 - a / 2, 2 * num + 2)
 }
 
 # sp functions ####
@@ -72,7 +75,7 @@ PoiCI <- function (num, conf.level = 0.95) {
 # finds count files in given folder only, not recursive.
 # - in: folder
 # - out: n x 1 tibble with file paths, n = # count files.
-sp_rawfinder <- function(folder){
+sp_rawfinder <- function(folder) {
   tryCatch(
     expr = {
       # if a .csv is the input, returns a single .csv
@@ -86,19 +89,22 @@ sp_rawfinder <- function(folder){
         ) %>%
           # incase / is added after path.
           str_replace("//", "/") %>%
-          enframe(name = NULL, value = "filepath") %>% 
+          enframe(name = NULL, value = "filepath") %>%
           # only counts / cps files
           filter(str_detect(filepath, "\\_count|\\_cps"))
         # pull(value)
       }
     },
-    error = function(e){
+    error = function(e) {
       print(
-        sprintf("An error occurred in sp_rawfinder at %s : %s",
-                Sys.time(),
-                e)
+        sprintf(
+          "An error occurred in sp_rawfinder at %s : %s",
+          Sys.time(),
+          e
+        )
       )
-    })
+    }
+  )
 }
 
 # raw count file reader
@@ -112,10 +118,11 @@ sp_reader <- function(CPS_csv) {
         skip = 4,
         col_select = 2,
         col_types = "d"
-      ) %>% 
-        rename(counts = 1) %>% drop_na() %>% 
+      ) %>%
+        rename(counts = 1) %>%
+        drop_na() %>%
         mutate(counts = round(counts, digits = 0))
-      
+
       return(reshaped)
     },
     error = function(e) {
@@ -134,11 +141,11 @@ sp_reader <- function(CPS_csv) {
 # - in: n x 1 tibble with file paths
 # - out: tibble with metadata on the files.
 # - todo: faster implementation using list.files into vector pipe into a map with a function that read lines, pipe into new map make function to take each lines and extract info with regex mutate.
-sp_classifier <- function(folder, RM_string = "RM"){
+sp_classifier <- function(folder, RM_string = "RM") {
   tryCatch(
     expr = {
       folder %>%
-        sp_rawfinder() %>% 
+        sp_rawfinder() %>%
         ungroup() %>%
         rowwise() %>% # consider rewrite map for performance
         mutate(
@@ -154,9 +161,10 @@ sp_classifier <- function(folder, RM_string = "RM"){
             str_replace_all("\\\\", "/") %>%
             str_extract("(?<=\\/)\\d{3}[^\\/]*(?=\\.[dD]$)"),
           isotope = read_csv(filepath,
-                             skip = 4,
-                             n_max = 0,
-                             col_select = 2,
+            skip = 4,
+            n_max = 0,
+            col_select = 2,
+            show_col_types = FALSE
           ) %>% names() %>% str_replace(".*197.*", "Au") %>%
             str_extract("[A-Z]{1}[a-z]{1}"),
           type =
@@ -168,13 +176,16 @@ sp_classifier <- function(folder, RM_string = "RM"){
         ) %>%
         ungroup()
     },
-    error = function(e){
+    error = function(e) {
       print(
-        sprintf("An error occurred in sp_classifier at %s : %s",
-                Sys.time(),
-                e)
+        sprintf(
+          "An error occurred in sp_classifier at %s : %s",
+          Sys.time(),
+          e
+        )
       )
-    })
+    }
+  )
 }
 
 
@@ -274,7 +285,7 @@ sp_peaker <- function(classified) {
   classified %>%
     mutate(
       peaks = future_map(filepath, ~ sp_reader(.) %>% sp_peak_discriminator()),
-      mean_counts = future_map(filepath, ~ sp_reader(.) %>% pull(counts) %>% mean())
+      mean_counts = future_map_dbl(filepath, ~ sp_reader(.) %>% pull(counts) %>% mean())
     )
 }
 
@@ -401,8 +412,9 @@ sp_calibrator <- function(classified,
           type == "RM",
           str_detect(sample_name, isotope)
         ) %>%
-        pull(filepath) %>% sp_reader() %>% 
-        sp_peak_discriminator()
+        pull(filepath) %>%
+        sp_reader() %>% #raw counts reader
+        sp_peak_discriminator() #discriminates particles, calculates peak parameters.
       
       RM_area_mode <- density(
         RM_areas$peak_area
@@ -518,33 +530,35 @@ sp_wrapper <- function(csv_folder,
                        RM_density = 19.32,
                        element_fraction = 1,
                        dens_comps = dens_comps) {
-  
   classified <- csv_folder %>%
     sp_classifier(RM_string)
-  
+
   peaked <- sp_peaker(classified)
-  
-  calibrated <- sp_calibrator(classified,
-                              RM_dia,
-                              RM_density,
-                              RM_isotope,
-                              element_fraction
+
+  calibrated <-
+    sp_calibrator(
+      classified,
+      RM_dia,
+      RM_density,
+      RM_isotope,
+      element_fraction
+    )
+
+  sp_output <- sp_outputer(
+    peaked,
+    calibrated,
+    acq_time,
+    dens_comps,
+    RM_isotope,
+    sample_intake_rate
   )
-  
-  sp_output <- sp_outputer(peaked, 
-                           calibrated,
-                           acq_time,
-                           dens_comps,
-                           RM_isotope,
-                           sample_intake_rate
-  )
-  
+
   return(sp_output)
 }
 
-## validation ####
-test %>%
-  filter(reduce(map(time_intervals, near, x= row_number(), tol = 2),`|`))
+## validation IN PROGRESS####
+# test %>%
+#   filter(reduce(map(time_intervals, near, x= row_number(), tol = 2),`|`))
 
 # Takes in sample file and the particle output, selects the smallest particles in terms of area and max intensity and reveals them in the spectrum with context.
 # Todo:
@@ -553,20 +567,34 @@ test %>%
 sp_spectrum_validation <- function(filepath, sp_output) {
   peaks_data <- sp_output %>%
     filter(filepath == filepath) %>%
-    pluck("peaks") %>% map_df(.f = as_tibble) 
-  # %>% 
+    pluck("peaks") %>%
+    map_df(.f = as_tibble)
+  # %>%
   #   filter(quantile(peak_area, n_prop) > peak_area)
-  
+
   time_intervals <- peaks_data %>% pull(peak_time)
-  
-raw_data <- sp_reader(filepath) %>%
-  filter(reduce(map(time_intervals, near, x = row_number(), tol = 50), `|`))
+
+  raw_data <- sp_reader(filepath)
+    # filter(reduce(map(time_intervals, near, x = row_number(), tol = 50), `|`))
+    
+    return(
+      raw_data %>% filter(near(x = row_number(raw_data), y = time_intervals, tol = 50))
+    )
+
+  # c(-50:50) %>% 
+  #   map(~ time_intervals + .x) %>% flatten() %>% unique()
+  # 
+  # raw_data %>% filter(
+  #   row_number() %in% {
+  #     c(-10:10) %>% 
+  #       map(~ time_intervals + .x) %>% flatten() %>% unique()
+  #   } 
+  # ) %>% View()
+
+  # ggplot(data = raw_data, aes(as.factor(row.names(raw_data)), counts)) +
+  #   geom_line()
 
 
-  ggplot(data = raw_data, aes(as.factor(row.names(raw_data)), counts)) +
-    geom_line()
-  
-  
   # +
   #   geom_point(data = sp_output %>%
   #     filter(filepath == filepath) %>% pluck("peaks"), aes(x = peak_time, y = 0), size = 4, color = "green")
@@ -707,6 +735,7 @@ raw_data <- sp_reader(filepath) %>%
 
 # TODO ####
 # - add comments
+# - check that number of dwells makes sense vs acq time.
 # - make output function work yet produce NAs if calibration and/or dens_comps are empty.
 # - validate
 # - increase speed, classifier especially.

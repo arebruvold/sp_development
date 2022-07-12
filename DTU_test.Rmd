@@ -31,22 +31,39 @@ toc("particles")}
 
 ```{r, warning=FALSE}
 {tic("cal")
-calibration_data <- sp_calibrator(classified, RM_dia = 60)
+calibration_data <- sp_calibrator(classified, RM_dia = 60, RM_density =  19.32, element_fraction = 1, RM_isotope = "Au")
 toc("cal")}
 ```
 
 ```{r}
 tic("pout")
-particles_out <- sp_outputer(peaked, calibration_data, dens_comps, RM_isotope = "Au", sample_intake_rate = 0.346, acq_time = 120)
+particles_out <- sp_outputer(peaked, calibration_data, dens_comps, RM_isotope = "60 nm Au 100 ng/l RM", sample_intake_rate = 0.346, acq_time = 120)
 toc("pout")
 ```
 
 
 ```{r, warning=FALSE, message=FALSE}
 tic("wraptesting")
-wraptest2 <- sp_wrapper(data_folder, acq_time = 60, sample_intake_rate = 0.312, RM_string = "AuNPs", dens_comps = dens_comps, RM_isotope = "Au")
+wraptest2 <- sp_wrapper(data_folder,
+                        acq_time = 120,
+                        sample_intake_rate = 0.346,
+                        RM_string = "60 nm Au 100 ng/l RM",
+                        dens_comps = dens_comps,
+                        RM_isotope = "Au")
 toc("wraptesting")
+
+
 ```
+
+```{r}
+test <- sp_spectrum_validation(wraptest2$filepath[28],
+                       wraptest2)
+
+time_intervals %>% as_tibble()
+  
+
+```
+
 
 
 ```{r, warning=FALSE, message=FALSE}
@@ -88,4 +105,5 @@ poster1_peaks <- sp_peaker(poster1_class)
 poster1_output <- sp_outputer(poster1_peaks,poster1_calibration_data, acq_time = 120,dens_comps = dens_comps, RM_isotope = "Au", sample_intake_rate = 0.346)
 
 ```
+
 
