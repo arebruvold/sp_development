@@ -410,7 +410,7 @@ sp_calibrator <- function(classified,
       RM_areas <- classified %>%
         filter(
           type == "RM",
-          str_detect(sample_name, isotope)
+          str_detect(isotope, RM_isotope)
         ) %>%
         pull(filepath) %>%
         sp_reader() %>% #raw counts reader
@@ -511,7 +511,7 @@ sp_outputer <- function(peaked,
       #   pull(mass_signal, detector_flow_rate) %>%
       #   Reduce(`*`, .) %>%
       #   as.numeric() * mean_counts %>% as.numeric()
-      total_conc = future_map2(
+      total_conc = future_map2_dbl(
         mean_counts, isotope,
         ~ .x / (calibration_data %>%
           filter(isotope == .y) %>%
@@ -564,9 +564,10 @@ sp_wrapper <- function(csv_folder,
 # Todo:
 #   - change to smallest 10 particles
 #   - show context of particles, 
-sp_spectrum_validation <- function(filepath, sp_output) {
+sp_spectrum_validation <- function(s_name, dfile, sp_output) {
   peaks_data <- sp_output %>%
-    filter(filepath == filepath) %>%
+    filter(sample_name == s_name,
+           datafile == d_file) %>%
     pluck("peaks") %>%
     map_df(.f = as_tibble)
   # %>%
@@ -574,12 +575,18 @@ sp_spectrum_validation <- function(filepath, sp_output) {
 
   time_intervals <- peaks_data %>% pull(peak_time)
 
-  raw_data <- sp_reader(filepath)
+  raw_data <- sp_reader(filepath) %>%
+    mutate(particle_detected = if_else(row_number() %in% time_intervals, TRUE, FALSE))
+
+  
+  
+  
+  
     # filter(reduce(map(time_intervals, near, x = row_number(), tol = 50), `|`))
-    
-    return(
-      raw_data %>% filter(near(x = row_number(raw_data), y = time_intervals, tol = 50))
-    )
+
+    # return(
+    #   raw_data %>% filter(near(x = row_number(raw_data), y = time_intervals, tol = 50))
+    # )
 
   # c(-50:50) %>% 
   #   map(~ time_intervals + .x) %>% flatten() %>% unique()
