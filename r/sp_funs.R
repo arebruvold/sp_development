@@ -172,7 +172,7 @@ sp_classifier <- function(folder, RM_string = "RM") {
           type =
             case_when(
               sample_name == RM_string ~ "RM",
-              str_detect(sample_name, "\\d{1,3}[A-Z]{1}[a-z]{1}") ~ "STD",
+              str_detect(sample_name, "^\\d{1,3}[A-Z]{1}[a-z]{1}$") ~ "STD",
               TRUE ~ "SAMPLE"
             )
         ) %>%
