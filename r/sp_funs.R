@@ -14,10 +14,12 @@
 
 #used for size calculations, to be replaced/ combined with mass_fractioner.
 dens_comps <- tibble(
-  "isotope" = c("RM", "Au", "Al", "Mn", "Pb", "Fe", "Si", "Ti", "Cr", "Ce", "Zr", "Cu", "Cd", "Ba", "Co", "Ni", "Zn"),
-  "density" = c(19.32, 19.32, 2.56, 4.25, 6.29, 4.30, 2.65, 4.17, 5.22, 7.22, 5.68, 6.31, 2, 2, 2, 2, 2),
-  "element_fraction" = c(1, 1, 26.982/(39.098+26.982+3*28.085+8*15.999), 1 / 1.6, 1 / 1.465, 1 / 1.59, 1 / 2.139, 1/1.67, 1/1.462, 1/1.23, 91.22/(91.22+16.00*2), 63.55/(63.55+16), 1, 1, 1, 1, 1)
+  "isotope" = c("RM", "Au", "Al", "Mn", "Pb", "Fe", "Si", "Ti", "Cr", "Ce", "Zr", "Cu", "Cd", "Ba", "Co", "Ni", "Zn", "Pt"),
+  "density" = c(19.32, 19.32, 2.56, 4.25, 6.29, 4.30, 2.65, 4.17, 5.22, 7.22, 5.68, 6.31, 2, 2, 2, 2, 2, 6),
+  "element_fraction" = c(1, 1, 26.982/(39.098+26.982+3*28.085+8*15.999), 1 / 1.6, 1 / 1.465, 1 / 1.59, 1 / 2.139, 1/1.67, 1/1.462, 1/1.23, 91.22/(91.22+16.00*2), 63.55/(63.55+16), 1, 1, 1, 1, 1, 1)
 )
+
+
 
 #not implemented yet.
 mass_fractioner <- function(chemformula, element) {
@@ -169,7 +171,7 @@ sp_classifier <- function(folder, RM_string = "RM") {
             str_extract("[A-Z]{1}[a-z]{1}"),
           type =
             case_when(
-              str_detect(sample_name, RM_string) ~ "RM",
+              sample_name == RM_string ~ "RM",
               str_detect(sample_name, "\\d{1,3}[A-Z]{1}[a-z]{1}") ~ "STD",
               TRUE ~ "SAMPLE"
             )
