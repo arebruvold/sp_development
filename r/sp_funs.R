@@ -172,7 +172,8 @@ sp_classifier <- function(folder, RM_string = "RM") {
           type =
             case_when(
               sample_name == RM_string ~ "RM",
-              str_detect(sample_name, "^\\d{1,3}[A-Z]{1}[a-z]{1}$") ~ "STD",
+              str_detect(sample_name, "^\\d{1,3}[A-Z]{1}[a-z]{1}") &&
+                str_detect(sample_name, "[\\+\\w]$") ~ "STD",
               TRUE ~ "SAMPLE"
             )
         ) %>%
@@ -559,6 +560,35 @@ sp_wrapper <- function(csv_folder,
 }
 
 ## validation IN PROGRESS####
+
+signal_rf_plotter <- function(signal_response_factors) {
+  signal_response_factors %>%
+    ggplot(aes(conc_ppb, mean_counts)) +
+    geom_point() +
+    geom_smooth(method = "lm", formula = y ~ x) +
+    labs(
+      x = paste0("Concentration [ug/L]"),
+      y = "Intensity [counts/dwell]"
+    ) +
+    geom_text(
+      x = -Inf, y = Inf, hjust = 0, vjust = 1,
+      aes(label = paste("slope:", round(response, digits = 3)))
+    ) +
+    geom_text(
+      x = -Inf, y = Inf, hjust = 0, vjust = 2.5,
+      aes(label = paste("intercept:", round(intercept, digits = 3)))
+    ) +
+    geom_text(
+      x = -Inf, y = Inf, hjust = 0, vjust = 4,
+      aes(label = paste("r2:", round(r2, digits = 5)))
+    ) +
+    facet_wrap(~isotope, scales = "free")
+}
+
+
+
+
+
 # test %>%
 #   filter(reduce(map(time_intervals, near, x= row_number(), tol = 2),`|`))
 
