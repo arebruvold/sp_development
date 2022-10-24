@@ -146,7 +146,7 @@ sp_reader <- function(CPS_csv) {
 sp_classifier <- function(folder, RM_string = "RM") {
   tryCatch(
     expr = {
-      folder %>%
+      classified <- folder %>%
         sp_rawfinder() %>%
         ungroup() %>%
         rowwise() %>% # consider rewrite map for performance
@@ -178,6 +178,14 @@ sp_classifier <- function(folder, RM_string = "RM") {
             )
         ) %>%
         ungroup()
+      
+      if (classified %>% nrow() < 1)
+      {
+        stop("No data.")
+      } else {
+      
+      return(classified)
+      }
     },
     error = function(e) {
       print(
@@ -193,7 +201,7 @@ sp_classifier <- function(folder, RM_string = "RM") {
 
 
 
-# classified <- sp_classifier("~/sp-data/Fordefjorden/", RM_string = "AuRM500ng/LM")
+classified <- sp_classifier("~/sp-data/Fordefjorden/", RM_string = "AuRM500ng/LM")
 
 
 ## sp peak discrimination ####
@@ -533,7 +541,7 @@ sp_outputer <- function(peaked,
     error = function(e) {
       print(
         sprintf(
-          "An error occurred in sp_output at %s : %s",
+          "An error occurred in sp_outputer at %s : %s",
           Sys.time(),
           e
         )
