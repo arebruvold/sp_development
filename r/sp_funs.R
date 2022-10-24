@@ -403,10 +403,10 @@ sp_response <- function(classified) {
 # - in: n x 6 ("classified"), filepath, sample_name, dataset, datafile, isotope, type
 # - out: tibble w detector flow rate, mass per signal, response for each isotope
 sp_calibrator <- function(classified,
-                     RM_dia,
-                     RM_density,
-                     RM_isotope,
-                     element_fraction) {
+                          RM_dia,
+                          RM_density,
+                          RM_isotope,
+                          element_fraction) {
   tryCatch(
     expr = {
       #calculates mass per count using known RM mass and relating to KDE max peak area.
@@ -432,21 +432,21 @@ sp_calibrator <- function(classified,
             )
         ) /
         RM_area_mode
-
+      
       responses <- sp_response(classified)
-
+      
       response_RM <- responses %>% 
         filter(isotope == RM_isotope) %>%
         distinct(response) %>%
         as.numeric()
-
+      
       calib <- responses %>%
         distinct(isotope, response, intercept, r2) %>%
         mutate(
           mass_signal = mass_signal_RM * response_RM / response, # counts per kg element
           detector_flow_rate = mass_signal_RM * response_RM * 10^9 # L per dwell
         )
-
+      
       return(calib)
     },
     error = function(e) {
@@ -457,6 +457,7 @@ sp_calibrator <- function(classified,
           e
         )
       )
+      return(NA)
     }
   )
 }
@@ -469,59 +470,96 @@ sp_outputer <- function(peaked,
                         dens_comps,
                         RM_isotope,
                         sample_intake_rate) {
-  peaked %>%
-    ungroup() %>%
-    mutate(
-      peaks = future_map2(
-        peaks, isotope,
-        ~ .x %>% mutate(
-          particle_mass = peak_area *
-              (filter(calibration_data, isotope == .y) %>%
-              pull(mass_signal) %>%
-              as.numeric()),
-          particle_size = (6 * particle_mass /
-            (pi * 
-              (filter(dens_comps, isotope == .y) %>%
-              pull(density, element_fraction) %>%
-              Reduce(`*`, .) %>%
-              as.numeric()) * 1000))^(1 / 3) * 10^9
-        )
-      ),
-      summary_data = future_map2(
-        peaks, isotope,
-        ~ .x %>%
-          summarise(
-            n_particles = n(),
-            mean_size = mean(particle_size),
-            median_size = median(particle_size),
-            mass_conc = sum(particle_mass) * 10^12 / (calibration_data %>%
-              filter(isotope == RM_isotope) %>%
-              pull(detector_flow_rate) %>%
-              as.numeric() * acq_time * 10000), # ng/L
-            particle_conc = n_particles / (calibration_data %>%
-              filter(isotope == RM_isotope) %>%
-              pull(detector_flow_rate) %>%
-              as.numeric() * acq_time * 10000), # #/L
-            detector_flow_rate = calibration_data %>%
-              filter(isotope == RM_isotope) %>%
-              pull(detector_flow_rate) %>%
-              as.numeric(),
-            transport_efficiency = detector_flow_rate * 1000 * 60 * 10000 / sample_intake_rate # L/dwell to ml/min conversion
+  
+  tryCatch(
+    expr = {
+      
+      sp_output <- peaked %>%
+        ungroup() %>%
+        mutate(
+          peaks = future_map2(
+            peaks, isotope,
+            ~ .x %>% mutate(
+              particle_mass = peak_area *
+                (filter(calibration_data, isotope == .y) %>%
+                   pull(mass_signal) %>%
+                   as.numeric()),
+              particle_size = (6 * particle_mass /
+                                 (pi * 
+                                    (filter(dens_comps, isotope == .y) %>%
+                                       pull(density, element_fraction) %>%
+                                       Reduce(`*`, .) %>%
+                                       as.numeric()) * 1000))^(1 / 3) * 10^9
+            )
+          ),
+          summary_data = future_map2(
+            peaks, isotope,
+            ~ .x %>%
+              summarise(
+                n_particles = n(),
+                mean_size = mean(particle_size),
+                median_size = median(particle_size),
+                mass_conc = sum(particle_mass) * 10^12 / (calibration_data %>%
+                                                            filter(isotope == RM_isotope) %>%
+                                                            pull(detector_flow_rate) %>%
+                                                            as.numeric() * acq_time * 10000), # ng/L
+                particle_conc = n_particles / (calibration_data %>%
+                                                 filter(isotope == RM_isotope) %>%
+                                                 pull(detector_flow_rate) %>%
+                                                 as.numeric() * acq_time * 10000), # #/L
+                detector_flow_rate = calibration_data %>%
+                  filter(isotope == RM_isotope) %>%
+                  pull(detector_flow_rate) %>%
+                  as.numeric(),
+                transport_efficiency = detector_flow_rate * 1000 * 60 * 10000 / sample_intake_rate # L/dwell to ml/min conversion
+              )
+          ), # Richard: why does this not work?
+          # total_conc = calibration_data %>%
+          #   filter(isotope == isotope) %>%
+          #   pull(mass_signal, detector_flow_rate) %>%
+          #   Reduce(`*`, .) %>%
+          #   as.numeric() * mean_counts %>% as.numeric()
+          total_conc = future_map2_dbl(
+            mean_counts, isotope,
+            ~ .x / (calibration_data %>%
+                      filter(isotope == .y) %>%
+                      pull(response) %>%
+                      Reduce(`*`, .))
           )
-      ), # Richard: why does this not work?
-      # total_conc = calibration_data %>%
-      #   filter(isotope == isotope) %>%
-      #   pull(mass_signal, detector_flow_rate) %>%
-      #   Reduce(`*`, .) %>%
-      #   as.numeric() * mean_counts %>% as.numeric()
-      total_conc = future_map2_dbl(
-        mean_counts, isotope,
-        ~ .x / (calibration_data %>%
-          filter(isotope == .y) %>%
-          pull(response) %>%
-          Reduce(`*`, .))
+        ) %>% unnest(summary_data)
+      
+      return(sp_output)
+    },
+    error = function(e) {
+      print(
+        sprintf(
+          "An error occurred in sp_output at %s : %s",
+          Sys.time(),
+          e
+        )
       )
-    ) %>% unnest(summary_data)
+      return(peaked %>% 
+               
+               mutate(
+                 summary_data = future_map(
+                   peaks,
+                   ~ .x %>%
+                     summarise(
+                       n_particles = n(),
+                       mean_size = NA_real_,
+                       median_size = NA_real_,
+                       mass_conc = NA_real_,
+                       particle_conc = NA_real_,
+                       detector_flow_rate = NA_real_,
+                       transport_efficiency = NA_real_,
+                       total_conc = NA_real_
+                     )
+                   
+                   
+                 )) %>% unnest(summary_data) 
+      )
+    }
+  )
 }
 
 sp_wrapper <- function(csv_folder,
