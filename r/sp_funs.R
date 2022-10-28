@@ -19,6 +19,12 @@ dens_comps <- tibble(
   "element_fraction" = c(1, 1, 26.982/(39.098+26.982+3*28.085+8*15.999), 1 / 1.6, 1 / 1.465, 1 / 1.59, 1 / 2.139, 1/1.67, 1/1.462, 1/1.23, 91.22/(91.22+16.00*2), 63.55/(63.55+16), 1, 1, 1, 1, 1, 1)
 )
 
+#For approximating mass concentrations for a given particle number.
+#todo: particle number concentrations if density is given. Vector input of size_target?
+mass_conc_estimator <- function(mass_conc_ref, size_ref, size_target, density = NA_real_) {
+  mass_conc_target <- mass_conc_ref * (size_target^3 / size_ref^3)
+  return(tibble(size_target = size_target, mass_conc_target = mass_conc_target))
+}
 
 
 #not implemented yet.
