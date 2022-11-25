@@ -17,16 +17,8 @@ dens_comps <- tibble(
   "isotope" = c("RM", "Au", "Al", "Mn", "Pb", "Fe", "Si", "Ti", "Cr", "Ce", "Zr", "Cu", "Cd", "Ba", "Co", "Ni", "Zn", "Pt"),
   "density" = c(19.32, 19.32, 2.56, 4.25, 6.29, 4.30, 2.65, 4.17, 5.22, 7.22, 5.68, 6.31, 2, 2, 2, 2, 2, 6),
   "element_fraction" = c(1, 1, 26.982/(39.098+26.982+3*28.085+8*15.999), 1 / 1.6, 1 / 1.465, 1 / 1.59, 1 / 2.139, 1/1.67, 1/1.462, 1/1.23, 91.22/(91.22+16.00*2), 63.55/(63.55+16), 1, 1, 1, 1, 1, 1)
-) %>% 
-  add_row(isotope = "Ag", density = 1, element_fraction = 1) %>%
-  add_row(isotope = "Hg", density = 1, element_fraction = 1)
+)
 
-#For approximating mass concentrations for a given particle number.
-#todo: particle number concentrations if density is given. Vector input of size_target?
-mass_conc_estimator <- function(mass_conc_ref, size_ref, size_target, density = NA_real_) {
-  mass_conc_target <- mass_conc_ref * (size_target^3 / size_ref^3)
-  return(tibble(size_target = size_target, mass_conc_target = mass_conc_target))
-}
 
 
 #not implemented yet.
@@ -38,7 +30,7 @@ mass_fractioner <- function(chemformula, element) {
   # https://gist.github.com/robertwb/22aa4dbfb6bcecd94f2176caa912b952 for the periodic table.
   composition <-
     tibble(symbol = str_split(chemformula, "(?<=[A-Za-z\\d]{1,3})(?=[A-Z])") %>%
-      as_vector()) %>%
+             as_vector()) %>%
     mutate(
       n = str_extract(symbol, "[\\d]{1,2}") %>%
         as.numeric(),
@@ -46,14 +38,14 @@ mass_fractioner <- function(chemformula, element) {
       symbol = str_replace_all(symbol, "\\d", "")
     ) %>%
     inner_join(read_csv("periodic_table.csv") %>%
-      janitor::clean_names() %>%
-      select(symbol, atomic_mass), by = "symbol") %>%
+                 janitor::clean_names() %>%
+                 select(symbol, atomic_mass), by = "symbol") %>%
     mutate(n_x_atomic_mass = atomic_mass * n)
-
+  
   composition %>%
     filter(symbol == element) %>%
     pull(n_x_atomic_mass) / sum(composition %>%
-      pull(n_x_atomic_mass))
+                                  pull(n_x_atomic_mass))
 }
 
 # Maximum of density fn estimator - to get the peak of non-parametric, multimodal distribution.
@@ -132,7 +124,7 @@ sp_reader <- function(CPS_csv) {
         rename(counts = 1) %>%
         drop_na() %>%
         mutate(counts = round(counts, digits = 0))
-
+      
       return(reshaped)
     },
     error = function(e) {
@@ -154,7 +146,7 @@ sp_reader <- function(CPS_csv) {
 sp_classifier <- function(folder, RM_string = "RM") {
   tryCatch(
     expr = {
-      classified <- folder %>%
+      folder %>%
         sp_rawfinder() %>%
         ungroup() %>%
         rowwise() %>% # consider rewrite map for performance
@@ -171,10 +163,10 @@ sp_classifier <- function(folder, RM_string = "RM") {
             str_replace_all("\\\\", "/") %>%
             str_extract("(?<=\\/)\\d{3}[^\\/]*(?=\\.[dD]$)"),
           isotope = read_csv(filepath,
-            skip = 4,
-            n_max = 0,
-            col_select = 2,
-            show_col_types = FALSE
+                             skip = 4,
+                             n_max = 0,
+                             col_select = 2,
+                             show_col_types = FALSE
           ) %>% names() %>% str_replace(".*197.*", "Au") %>%
             str_extract("[A-Z]{1}[a-z]{1}"),
           type =
@@ -186,14 +178,6 @@ sp_classifier <- function(folder, RM_string = "RM") {
             )
         ) %>%
         ungroup()
-      
-      if (classified %>% nrow() < 1)
-      {
-        stop("No data.")
-      } else {
-      
-      return(classified)
-      }
     },
     error = function(e) {
       print(
@@ -209,7 +193,7 @@ sp_classifier <- function(folder, RM_string = "RM") {
 
 
 
-classified <- sp_classifier("~/sp-data/Fordefjorden/", RM_string = "AuRM500ng/LM")
+# classified <- sp_classifier("~/sp-data/Fordefjorden/", RM_string = "AuRM500ng/LM")
 
 
 ## sp peak discrimination ####
@@ -259,9 +243,9 @@ sp_peak_discriminator <- function(sp_read) {
       peak_n = if_else(
         c_above_baseline_thr != 0 &
           (lag(c_above_baseline_thr) == 0 |
-            is.na(lag(
-              c_above_baseline_thr
-            ))),
+             is.na(lag(
+               c_above_baseline_thr
+             ))),
         1,
         0
       ),
@@ -291,7 +275,7 @@ sp_peak_discriminator <- function(sp_read) {
     distinct(peak_n, .keep_all = TRUE) %>%
     filter(above_height_thr == TRUE) %>%
     select(peak_n, peak_time, peak_max, peak_width, peak_area)
-
+  
   peaks
 }
 
@@ -326,8 +310,8 @@ sp_response <- function(classified) {
         rowwise() %>%
         mutate(
           mean_counts = read_csv(filepath,
-            skip = 4,
-            col_types = "d", col_select = 2
+                                 skip = 4,
+                                 col_types = "d", col_select = 2
           ) %>%
             drop_na() %>%
             rename(counts = 1) %>%
@@ -478,6 +462,7 @@ sp_calibrator <- function(classified,
   )
 }
 
+
 ## output ####
 
 sp_outputer <- function(peaked, 
@@ -549,7 +534,7 @@ sp_outputer <- function(peaked,
     error = function(e) {
       print(
         sprintf(
-          "An error occurred in sp_outputer at %s : %s",
+          "An error occurred in sp_output at %s : %s",
           Sys.time(),
           e
         )
@@ -589,9 +574,9 @@ sp_wrapper <- function(csv_folder,
                        dens_comps = dens_comps) {
   classified <- csv_folder %>%
     sp_classifier(RM_string)
-
+  
   peaked <- sp_peaker(classified)
-
+  
   calibrated <-
     sp_calibrator(
       classified,
@@ -600,7 +585,7 @@ sp_wrapper <- function(csv_folder,
       RM_isotope,
       element_fraction
     )
-
+  
   sp_output <- sp_outputer(
     peaked,
     calibrated,
@@ -609,7 +594,7 @@ sp_wrapper <- function(csv_folder,
     RM_isotope,
     sample_intake_rate
   )
-
+  
   return(sp_output)
 }
 
@@ -658,22 +643,22 @@ sp_spectrum_validation <- function(s_name, dfile, sp_output) {
     map_df(.f = as_tibble)
   # %>%
   #   filter(quantile(peak_area, n_prop) > peak_area)
-
+  
   time_intervals <- peaks_data %>% pull(peak_time)
-
+  
   raw_data <- sp_reader(filepath) %>%
     mutate(particle_detected = if_else(row_number() %in% time_intervals, TRUE, FALSE))
-
   
   
   
   
-    # filter(reduce(map(time_intervals, near, x = row_number(), tol = 50), `|`))
-
-    # return(
-    #   raw_data %>% filter(near(x = row_number(raw_data), y = time_intervals, tol = 50))
-    # )
-
+  
+  # filter(reduce(map(time_intervals, near, x = row_number(), tol = 50), `|`))
+  
+  # return(
+  #   raw_data %>% filter(near(x = row_number(raw_data), y = time_intervals, tol = 50))
+  # )
+  
   # c(-50:50) %>% 
   #   map(~ time_intervals + .x) %>% flatten() %>% unique()
   # 
@@ -683,16 +668,16 @@ sp_spectrum_validation <- function(s_name, dfile, sp_output) {
   #       map(~ time_intervals + .x) %>% flatten() %>% unique()
   #   } 
   # ) %>% View()
-
+  
   # ggplot(data = raw_data, aes(as.factor(row.names(raw_data)), counts)) +
   #   geom_line()
-
-
+  
+  
   # +
   #   geom_point(data = sp_output %>%
   #     filter(filepath == filepath) %>% pluck("peaks"), aes(x = peak_time, y = 0), size = 4, color = "green")
 }
-  
+
 
 
 # signal_found_plotter <- function(foundParticles,
@@ -842,4 +827,4 @@ sp_spectrum_validation <- function(s_name, dfile, sp_output) {
 
 
 
-  
+
