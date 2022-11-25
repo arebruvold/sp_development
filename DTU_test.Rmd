@@ -35,6 +35,7 @@ calibration_data <- sp_calibrator(classified, RM_dia = 60, RM_density =  19.32, 
 toc("cal")}
 ```
 
+
 ```{r}
 tic("pout")
 particles_out <- sp_outputer(peaked, calibration_data, dens_comps, RM_isotope = "60 nm Au 100 ng/l RM", sample_intake_rate = 0.346, acq_time = 120)
@@ -49,61 +50,15 @@ wraptest2 <- sp_wrapper(data_folder,
                         sample_intake_rate = 0.346,
                         RM_string = "60 nm Au 100 ng/l RM",
                         dens_comps = dens_comps,
-                        RM_isotope = "Au")
+                        RM_isotope = "Au",
+                        RM_dia = 60)
 toc("wraptesting")
 
 
 ```
 
-```{r}
-test <- sp_spectrum_validation(wraptest2$filepath[28],
-                       wraptest2)
-
-time_intervals %>% as_tibble()
-  
-
+```{r validation}
+sp_spectrum_validation(s_name = "60 nm Au 100 ng/l RM", dfile = "024SMPL_D1", sp_output = wraptest2) %>% mutate(time = row_number()) %>% 
+  ggplot(aes(time, counts))+geom_line()
 ```
-
-
-
-```{r, warning=FALSE, message=FALSE}
-
-tic("Au")
-au_d1 <- sp_wrapper("~/sp-data/paper0_au_validering/D1.b/", acq_time = 120, sample_intake_rate = 0.346, RM_string = "60 nm Au 100 ng/l RM", dens_comps = dens_comps, RM_isotope = "Au")
-
-au_d2 <- sp_wrapper("~/sp-data/paper0_au_validering/D2.b/", acq_time = 120, sample_intake_rate = 0.346, RM_string = "60 nm Au 100 ng/l RM", dens_comps = dens_comps, RM_isotope = "Au")
-
-au_d3 <- sp_wrapper("~/sp-data/paper0_au_validering/D3.b/", acq_time = 120, sample_intake_rate = 0.346, RM_string = "60 nm Au 100 ng/l RM", dens_comps = dens_comps, RM_isotope = "Au")
-
-au_d4 <- sp_wrapper("~/sp-data/paper0_au_validering/D4.b/", acq_time = 120, sample_intake_rate = 0.346, RM_string = "60 nm Au 100 ng/l RM", dens_comps = dens_comps, RM_isotope = "Au")
-
-au_d5 <- sp_wrapper("~/sp-data/paper0_au_validering/D5.b/", acq_time = 120, sample_intake_rate = 0.346, RM_string = "60 nm Au 100 ng/l RM", dens_comps = dens_comps, RM_isotope = "Au")
-toc("Au")
-
-au_alldays <- rbind(au_d1 %>% mutate(dataset = 1), au_d2 %>% mutate(dataset = 2), au_d3 %>% mutate(dataset = 3), au_d4 %>% mutate(dataset = 4), au_d5 %>% mutate(dataset = 5))
-
-```
-
-```{r}
-mathias_torsk_210917 <- sp_wrapper("~/sp-data/17.09.21 Au Ce Ti torsk.b/", acq_time = 120, sample_intake_rate = 0.346, RM_string = "RM", dens_comps = dens_comps, RM_isotope = "Au", RM_density = 19.32)
-```
-
-```{r poster1-tests}
-
-poster1 <- sp_wrapper("~/OneDrive - Havforskningsinstituttet/Are Marine Nanoparticles/Paper_2_Au_val/poster_data/200814_BM_TiCuCr_x6000_poster_1.b/", acq_time = 180, sample_intake_rate = 0.346, RM_string = "RM", dens_comps = dens_comps, RM_isotope = "Au", RM_density = 19.32)
-
-poster1_class <- sp_classifier("~/OneDrive - Havforskningsinstituttet/Are Marine Nanoparticles/Paper_2_Au_val/poster_data/200814_BM_TiCuCr_x6000_poster_1.b/", RM_string = "RM")
-
-poster1_class %>% View()
-
-poster1_responses <- sp_response(poster1_class)
-
-poster1_calibration_data <- sp_calibrator(poster1_class, RM_dia = 60, RM_density = 19.32, RM_isotope = "Au", element_fraction = 1)
-
-poster1_peaks <- sp_peaker(poster1_class)
-
-poster1_output <- sp_outputer(poster1_peaks,poster1_calibration_data, acq_time = 120,dens_comps = dens_comps, RM_isotope = "Au", sample_intake_rate = 0.346)
-
-```
-
 
