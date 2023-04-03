@@ -36,6 +36,7 @@ mass_fractioner <- function(chemformula, element) {
   # Case sensitive, number after element, e.g. TiO2, or C6H12O6.
   # Credits to https://gist.github.com/GoodmanSciences/c2dd862cd38f21b0ad36b8f96b4bf1ee#file-periodic-table-of-elements-csv and
   # https://gist.github.com/robertwb/22aa4dbfb6bcecd94f2176caa912b952 for the periodic table.
+  
   composition <-
     tibble(symbol = str_split(chemformula, "(?<=[A-Za-z\\d]{1,3})(?=[A-Z])") %>%
       as_vector()) %>%
@@ -50,10 +51,11 @@ mass_fractioner <- function(chemformula, element) {
       select(symbol, atomic_mass), by = "symbol") %>%
     mutate(n_x_atomic_mass = atomic_mass * n)
 
-  composition %>%
+  return(composition %>%
     filter(symbol == element) %>%
     pull(n_x_atomic_mass) / sum(composition %>%
       pull(n_x_atomic_mass))
+  )
 }
 
 # Maximum of density fn estimator - to get the peak of non-parametric, multimodal distribution.
@@ -180,7 +182,7 @@ sp_classifier <- function(folder, RM_string = "RM") {
           type =
             case_when(
               sample_name == RM_string ~ "RM",
-              str_detect(sample_name, "^[\\d.]*[A-Z]{1}[a-z]{1}") &&
+              str_detect(sample_name, "^\\d{1,3}[A-Z]{1}[a-z]{1}") &&
                 str_detect(sample_name, "[\\+\\w]$") ~ "STD",
               TRUE ~ "SAMPLE"
             )
@@ -206,6 +208,7 @@ sp_classifier <- function(folder, RM_string = "RM") {
     }
   )
 }
+
 
 
 
@@ -243,9 +246,97 @@ sp_baseline_thr <- function(reshaped) {
 
 # Discriminates and calculates peak parameters, numbers.
 # - in: m x 1 tibble with count data.
-# - out: p x 5 tibble with peak_n, peak_time, peak_max, peak_width and peak_area
+# - out: list of 
+#    - (p x 5 tibble with peak_n, peak_time, peak_max, peak_width and peak_area)
+#    - 1 x 3, mean counts, baseline and h_thr
+
+# ### ARNAUD SUGGESTION, MERGE
+# classified$filepath %>%
+#   future_map(\(x){
+#     bl_thr_data <- sp_reader(x) %>%
+#       sp_baseline_thr()
+#     bl_thr_means <- bl_thr_data %>%
+#       summarise(
+#         across(
+#           everything(), mean, .names = "{.col}_{.fn}"
+#         )
+#       )
+#     peaks <- bl_thr_data %>%
+#       mutate(
+#         c_above_baseline_thr = if_else(
+#           counts <= baseline,
+#           0,
+#           counts - baseline
+#         ),
+#         # generates a 1 for each time a value is above the baseline, and the previous point is below.
+#         peak_n = if_else(
+#           c_above_baseline_thr != 0 &
+#             (lag(c_above_baseline_thr) == 0 |
+#               is.na(lag(
+#                 c_above_baseline_thr
+#               ))),
+#           1,
+#           0
+#         ),
+#         # labeling by n event, classify events whether max is above thr or not.
+#         peak_n = cumsum(peak_n),
+#         peak_time = row_number()
+#       ) %>%
+#       group_by(peak_n) %>%
+#       # Peak width error(?)
+#       mutate(
+#         peak_max = max(counts),
+#         peak_width = sum(c_above_baseline_thr > 0),
+#         above_height_thr = peak_max > h_thr,
+#         # integration using group by.
+#         # interpolation when passing baseline could perhaps improve accuracy
+#         # across size ranges at the expense of computation time.
+#         # This because the aspect ratio may increase w size.
+#         peak_area = sum(c_above_baseline_thr) %>% round(digits = 0)
+#       ) %>%
+#       # # for signal distribution (REMOVED):
+#       # group_by(peak_area, above_height_thr) %>%
+#       # mutate(
+#       #   peak_area_count = length(unique(peak_n))
+#       # ) %>%
+#       ungroup() %>%
+#       select(!c_above_baseline_thr) %>%
+#       distinct(peak_n, .keep_all = TRUE) %>%
+#       filter(above_height_thr == TRUE) %>%
+#       select(peak_n, peak_time, peak_max, peak_width, peak_area)
+# 
+#     if(nrow(peaks) == 0){
+#       peaks <- tibble(
+#         peak_n = integer(1),
+#         peak_time = integer(1),
+#         peak_max = integer(1), peak_width = integer(1), peak_area = integer(1)
+#       ) %>% nest(data = everything())
+#     }
+#     
+#     # tibble(bl_thr_means, peaks) %>%
+#     #   group_by(counts, baseline, h_thr) %>%
+#     #   nest() %>% rename(peaks = data)
+#     
+#     return(
+#       tibble(peaks %>% nest(data = everything()) %>% rename(peaks = data),
+#              bl_thr_means)
+#       
+#     )
+#   }) %>% list_rbind()
+# ### arnoud suggestion end
+  
+
 sp_peak_discriminator <- function(sp_read) {
-  peaks <- sp_baseline_thr(sp_read) %>%
+  bl_thr_data <- sp_baseline_thr(sp_read)
+  
+  bl_thr_means <- bl_thr_data %>%
+    summarise(
+      mean_counts = mean(counts),
+      median_h_thr = median(h_thr)
+    )
+
+  
+  peaks <- bl_thr_data %>%
     mutate(
       c_above_baseline_thr = if_else(
         counts <= baseline,
@@ -289,21 +380,104 @@ sp_peak_discriminator <- function(sp_read) {
     filter(above_height_thr == TRUE) %>%
     select(peak_n, peak_time, peak_max, peak_width, peak_area)
 
-  peaks
+  return(
+    tibble(peaks %>% nest(data = everything()) %>% rename(peaks = data), bl_thr_means) %>% nest()
+  )
 }
 
 
 # adds peak data to datafiles.
 # in: n x 5, sample_name, dataset, datafile, isotope, type
-# out: n x 6, adds nested p x 5: peak_n, peak_time. peak_max, peak_width, peak_area  
-sp_peaker <- function(classified) {
+# out: n x 6, adds nested p x 5: peak_n, peak_time. peak_max, peak_width, peak_area, h_thr
+sp_peaker_old <- function(classified) {
   # ideas for optimization(?): https://www.brodrigues.co/blog/2021-03-19-no_loops_tidyeval/
   classified %>%
     mutate(
-      peaks = future_map(filepath, ~ sp_reader(.) %>% sp_peak_discriminator()),
-      mean_counts = future_map_dbl(filepath, ~ sp_reader(.) %>% pull(counts) %>% mean())
-    )
+      peaks_bl_thr_means = future_map(filepath, ~ sp_reader(.) %>% sp_peak_discriminator())
+    ) %>% unnest(data)
 }
+
+
+sp_peaker <- function(classified) {
+  classified$filepath %>%
+  future_map(\(x){
+    bl_thr_data <- sp_reader(x) %>%
+      sp_baseline_thr()
+    bl_thr_means <- bl_thr_data %>% drop_na() %>% 
+      summarise(
+        mean_counts = mean(counts),
+        median_h_thr = median(h_thr)
+      )
+    peaks <- bl_thr_data %>%
+      mutate(
+        c_above_baseline_thr = if_else(
+          counts <= baseline,
+          0,
+          counts - baseline
+        ),
+        # generates a 1 for each time a value is above the baseline, and the previous point is below.
+        peak_n = if_else(
+          c_above_baseline_thr != 0 &
+            (lag(c_above_baseline_thr) == 0 |
+              is.na(lag(
+                c_above_baseline_thr
+              ))),
+          1,
+          0
+        ),
+        # labeling by n event, classify events whether max is above thr or not.
+        peak_n = cumsum(peak_n),
+        peak_time = row_number()
+      ) %>%
+      group_by(peak_n) %>%
+      # Peak width error(?)
+      mutate(
+        peak_max = max(counts),
+        peak_width = sum(c_above_baseline_thr > 0),
+        above_height_thr = peak_max > h_thr,
+        # integration using group by.
+        # interpolation when passing baseline could perhaps improve accuracy
+        # across size ranges at the expense of computation time.
+        # This because the aspect ratio may increase w size.
+        peak_area = sum(c_above_baseline_thr) %>% round(digits = 0)
+      ) %>%
+      # # for signal distribution (REMOVED):
+      # group_by(peak_area, above_height_thr) %>%
+      # mutate(
+      #   peak_area_count = length(unique(peak_n))
+      # ) %>%
+      ungroup() %>%
+      select(!c_above_baseline_thr) %>%
+      distinct(peak_n, .keep_all = TRUE) %>%
+      filter(above_height_thr == TRUE) %>% 
+      select(peak_n, peak_time, peak_max, peak_width, peak_area, h_thr) %>% 
+      add_row(peak_n = NA_integer_, peak_time = NA_integer_, peak_max = NA_integer_, peak_width = NA_integer_, peak_area = NA_integer_, h_thr = NA_integer_) %>% 
+      mutate(across(.cols = everything(), as.integer))
+
+    # if(nrow(peaks) == 0){
+    #   peaks <- tibble(
+    #     peak_n = integer(1),
+    #     peak_time = integer(1),
+    #     peak_max = integer(1), peak_width = integer(1), peak_area = integer(1), h_thr = integer(1)
+    #   )
+    #   
+    # }
+    
+    # tibble(bl_thr_means, peaks) %>%
+    #   group_by(counts, baseline, h_thr) %>%
+    #   nest() %>% rename(peaks = data)
+    
+    
+    return(
+      tibble(peaks %>% nest(data = everything()) %>% rename(peaks = data), bl_thr_means))
+    
+  }) %>%
+  list_rbind() %>% bind_cols(classified) %>% 
+    relocate(c(peaks, mean_counts, median_h_thr), .after = last_col())
+}
+
+
+
 
 
 ## calibration ####
@@ -429,14 +603,56 @@ sp_calibrator <- function(classified,
           str_detect(isotope, RM_isotope)
         ) %>%
         pull(filepath) %>%
-        sp_reader() %>% #raw counts reader
-        sp_peak_discriminator() #discriminates particles, calculates peak parameters.
+        sp_reader() %>%
+        sp_baseline_thr() %>% 
+        mutate(
+          c_above_baseline_thr = if_else(
+            counts <= baseline,
+            0,
+            counts - baseline
+          ),
+          # generates a 1 for each time a value is above the baseline, and the previous point is below.
+          peak_n = if_else(
+            c_above_baseline_thr != 0 &
+              (lag(c_above_baseline_thr) == 0 |
+                 is.na(lag(
+                   c_above_baseline_thr
+                 ))),
+            1,
+            0
+          ),
+          # labeling by n event, classify events whether max is above thr or not.
+          peak_n = cumsum(peak_n),
+          peak_time = row_number()
+        ) %>%
+        group_by(peak_n) %>%
+        # Peak width error(?)
+        mutate(
+          peak_max = max(counts),
+          peak_width = sum(c_above_baseline_thr > 0),
+          above_height_thr = peak_max > h_thr,
+          # integration using group by.
+          # interpolation when passing baseline could perhaps improve accuracy
+          # across size ranges at the expense of computation time.
+          # This because the aspect ratio may increase w size.
+          peak_area = sum(c_above_baseline_thr) %>% round(digits = 0)
+        ) %>%
+        # # for signal distribution (REMOVED):
+        # group_by(peak_area, above_height_thr) %>%
+        # mutate(
+        #   peak_area_count = length(unique(peak_n))
+        # ) %>%
+        ungroup() %>%
+        select(!c_above_baseline_thr) %>%
+        distinct(peak_n, .keep_all = TRUE) %>%
+        filter(above_height_thr == TRUE) %>%
+        select(peak_n, peak_time, peak_max, peak_width, peak_area) #discriminates particles, calculates peak parameters.
       
       RM_area_mode <- density(
         RM_areas$peak_area
       )$x[which.max(density(RM_areas$peak_area)$y)]
       
-      mass_signal_RM <- # kg per counts
+      mass_signal_RM <- # kg RM element per count
         (
           RM_density * # density RM [g/cm3]
             1000 * (4 / 3) * pi * (RM_dia * 10^(-9) / 2)^3 * # RM volume
@@ -451,12 +667,12 @@ sp_calibrator <- function(classified,
       response_RM <- responses %>% 
         filter(isotope == RM_isotope) %>%
         distinct(response) %>%
-        as.numeric() #counts per ug/L
+        as.numeric()
       
       calib <- responses %>%
         distinct(isotope, response, intercept, r2) %>%
         mutate(
-          mass_signal = mass_signal_RM * response_RM / response, 
+          mass_signal = mass_signal_RM * response_RM / response, # kgs element per count
           detector_flow_rate = mass_signal_RM * response_RM * 10^9 # L per dwell
         )
       
@@ -509,10 +725,10 @@ sp_outputer <- function(peaked,
             peaks, isotope,
             ~ .x %>%
               summarise(
-                n_particles = n(),
-                mean_size = mean(particle_size),
-                median_size = median(particle_size),
-                mass_conc = sum(particle_mass) * 10^12 / (calibration_data %>%
+                n_particles = n()-1,
+                mean_size = mean(particle_size, na.rm = TRUE),
+                median_size = median(particle_size, na.rm = TRUE),
+                mass_conc = sum(particle_mass, na.rm = TRUE) * 10^12 / (calibration_data %>%
                                                             filter(isotope == RM_isotope) %>%
                                                             pull(detector_flow_rate) %>%
                                                             as.numeric() * acq_time * 10000), # ng/L
@@ -524,8 +740,12 @@ sp_outputer <- function(peaked,
                   filter(isotope == RM_isotope) %>%
                   pull(detector_flow_rate) %>%
                   as.numeric(),
-                transport_efficiency = detector_flow_rate * 1000 * 60 * 10000 / sample_intake_rate # L/dwell to ml/min conversion
-              )
+                transport_efficiency = detector_flow_rate * 1000 * 60 * 10000 / sample_intake_rate, # L/dwell to ml/min conversion
+                mass_signal = calibration_data %>%
+                  filter(isotope == .y) %>%
+                  pull(mass_signal) %>%
+                  as.numeric()
+                )
           ), # Richard: why does this not work?
           # total_conc = calibration_data %>%
           #   filter(isotope == isotope) %>%
@@ -538,8 +758,12 @@ sp_outputer <- function(peaked,
                       filter(isotope == .y) %>%
                       pull(response) %>%
                       Reduce(`*`, .))
-          )
-        ) %>% unnest(summary_data)
+          ),
+          
+        ) %>% unnest(summary_data) %>% rowwise() %>% 
+        mutate(
+          mass_thr = median_h_thr * mass_signal
+        )
       
       return(sp_output)
     },
@@ -559,13 +783,13 @@ sp_outputer <- function(peaked,
                    ~ .x %>%
                      summarise(
                        n_particles = n(),
-                       mean_size = NA_real_,
-                       median_size = NA_real_,
-                       mass_conc = NA_real_,
-                       particle_conc = NA_real_,
-                       detector_flow_rate = NA_real_,
-                       transport_efficiency = NA_real_,
-                       total_conc = NA_real_
+                       mean_size = NA,
+                       median_size = NA,
+                       mass_conc = NA,
+                       particle_conc = NA,
+                       detector_flow_rate = NA,
+                       transport_efficiency = NA,
+                       total_conc = NA
                      )
                    
                    
@@ -574,6 +798,8 @@ sp_outputer <- function(peaked,
     }
   )
 }
+
+
 
 sp_wrapper <- function(csv_folder,
                        acq_time = 60,
@@ -609,6 +835,39 @@ sp_wrapper <- function(csv_folder,
 
   return(sp_output)
 }
+
+
+sp_comparer <- function(processed, acq_time) {
+  # use mass signal and mean h thr to remove particles bellow highest mass thr.
+  processed %>%
+    filter(type == "SAMPLE") %>%
+    group_by(isotope) %>%
+    mutate(max_mass_thr = max(mass_thr)) %>%
+    ungroup() %>%
+    mutate(
+      peaks = future_map2(
+        peaks, max_mass_thr * mass_signal,
+        ~ .x %>% filter(peak_max > .y)
+      )
+    ) %>% 
+    mutate(
+      # recalculate peak summary values
+      summary_data = future_map(
+        peaks,
+        ~ .x %>%  
+          summarise(
+            n_particles = n(),
+            mean_size = mean(particle_size, na.rm = TRUE),
+            median_size = median(particle_size, na.rm = TRUE),
+            mass_conc = sum(particle_mass, na.rm = TRUE)
+          )
+      )
+    ) %>% select(-c(n_particles, mean_size, median_size, mass_conc, particle_conc)) %>%
+    unnest(summary_data) %>%
+    mutate(mass_conc = mass_conc * 10^12 / detector_flow_rate * acq_time * 10000,
+           particle_conc = n_particles / detector_flow_rate * acq_time * 10000 )
+}
+
 
 ## validation IN PROGRESS####
 
